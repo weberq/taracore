@@ -232,6 +232,39 @@ Measured on a Pixel 9a, this matters more than the feature itself:
 - **A schema helps the model as well as you.** `json_schema` was the most accurate
   form tested, because emitting `{"category": "` puts the model in a frame it knows.
 
+### What a grammar does not give you
+
+A choice grammar guarantees the answer is one of your options. **It does not guarantee
+the model considered them.** Including an explicit "none of these" option does not
+reliably give the model an exit — small models rarely take it. If a wrong answer costs
+more than no answer, keep a non-model path for the confident cases and treat the
+constrained reply as a suggestion.
+
+This is not hypothetical. Categorising merchants from real payment notifications, with
+six categories plus `"None of these"` in the choice set every time:
+
+| | correct |
+|---|---|
+| keyword list alone | 17/19 |
+| keywords + constrained `qwen2.5-1.5b` | 12/19 |
+| keywords + constrained `qwen2.5-0.5b` | 10/19 |
+
+Constraining the output made the outcomes *worse*. Not because the grammar
+misbehaved, but because it removed an accident that had been doing useful work: an
+unparseable answer used to mean "no category", and that silence was usually right. A
+constrained model always commits, and it commits confidently to nonsense —
+`qwen2.5-0.5b` answered `Shopping` for every unrecognised merchant, including three
+people's names. The 1.5B chose `"None of these"` once in eight; the 0.5B never chose
+it at all.
+
+The shape that worked: a deterministic path decides the cases it is sure about, and
+the model's constrained answer only *pre-fills* a suggestion for a human to confirm.
+Constrained decoding is what makes that suggestion clean enough to show someone —
+just do not read a valid answer as a considered one.
+
+*(Measured by the Cashi Flow integration; see issue #1.)*
+
+
 ---
 
 ## Avoiding an accidental model swap

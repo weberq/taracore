@@ -144,6 +144,38 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
 → `Transport`, every time. Also `json_object`, `json_schema`, and raw GBNF. From
 Kotlin it is `ChatParams(grammar = Constraint.oneOf("Food", "Transport", ...))`.
 
+### What a grammar does not give you
+
+A choice grammar guarantees the answer is one of your options. **It does not guarantee
+the model considered them.** Including an explicit "none of these" option does not
+reliably give the model an exit — small models rarely take it. If a wrong answer costs
+more than no answer, keep a non-model path for the confident cases and treat the
+constrained reply as a suggestion.
+
+This is not hypothetical. Categorising merchants from real payment notifications, with
+six categories plus `"None of these"` in the choice set every time:
+
+| | correct |
+|---|---|
+| keyword list alone | 17/19 |
+| keywords + constrained `qwen2.5-1.5b` | 12/19 |
+| keywords + constrained `qwen2.5-0.5b` | 10/19 |
+
+Constraining the output made the outcomes *worse*. Not because the grammar
+misbehaved, but because it removed an accident that had been doing useful work: an
+unparseable answer used to mean "no category", and that silence was usually right. A
+constrained model always commits, and it commits confidently to nonsense —
+`qwen2.5-0.5b` answered `Shopping` for every unrecognised merchant, including three
+people's names. The 1.5B chose `"None of these"` once in eight; the 0.5B never chose
+it at all.
+
+The shape that worked: a deterministic path decides the cases it is sure about, and
+the model's constrained answer only *pre-fills* a suggestion for a human to confirm.
+Constrained decoding is what makes that suggestion clean enough to show someone —
+just do not read a valid answer as a considered one.
+
+*(Measured by the Cashi Flow integration; see issue #1.)*
+
 ## Roadmap
 
 - **Multi-sequence batching** — several clients sharing one context through
@@ -154,6 +186,9 @@ Kotlin it is `ChatParams(grammar = Constraint.oneOf("Food", "Transport", ...))`.
   constrained decoding that already landed.
 - **LoRA adapters** — `llama_adapter_lora` lets one base model serve several
   fine-tunes at a few megabytes each, rather than a full model per task.
+- **Confidence signals** — `logprobs` on the response, so a client can tell a
+  considered answer from a coerced one and fall back rather than commit. The gap the
+  table above measures is the argument for it.
 - **LiteRT backend** — an alternative to `llama.cpp` reaching the NPU on devices that
   expose one, where the gap over CPU is an order of magnitude rather than a factor.
 

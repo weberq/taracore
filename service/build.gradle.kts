@@ -45,6 +45,14 @@ android {
         getByName("test") { kotlin.srcDir("src/test/kotlin") }
     }
 
+    testOptions {
+        unitTests {
+            // android.util.Log is a stub in the unit-test JAR and throws by default.
+            // These tests exercise queueing and parsing, not logging.
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             // Ktor and kotlinx bring several copies of these; none are needed at runtime.

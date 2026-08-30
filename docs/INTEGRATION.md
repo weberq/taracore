@@ -123,6 +123,51 @@ first when the constraint is load-bearing:
 if (client.apiVersion() >= 2) { /* grammar is honoured */ }
 ```
 
+### Warming the model before the user asks
+
+```kotlin
+// When your app comes to the foreground -- not on the request path.
+lifecycleScope.launch {
+    client.warmUp().collect { progress ->
+        when (progress) {
+            is LoadProgress.Loaded -> Log.i(TAG, "ready on ${progress.backend}")
+            // A decline is normal: the service refuses when the model will not fit.
+            // The next request still works, it just pays the load.
+            is LoadProgress.Failed -> Log.i(TAG, "not warmed: ${progress.message}")
+            is LoadProgress.Progress -> Unit
+        }
+    }
+}
+
+// Or, if you have nothing to do with the outcome:
+client.warmUpQuietly()
+```
+
+Takes no model id: it loads whatever the *user* configured, so your app never picks a
+model on every other app's behalf. Requires a service reporting API version 3.
+
+### A fixed-shape JSON object
+
+```kotlin
+// One line, all fields required, emitted in this order.
+Constraint.schema(
+    "hour" to Constraint.Type.INTEGER,
+    "minute" to Constraint.Type.INTEGER,
+)                                        // {"hour": 7, "minute": 30}
+
+// Or, for optional keys, fixed value sets, arrays and nesting:
+Constraint.obj {
+    integer("hour")
+    integer("minute")
+    oneOf("period", "am", "pm")
+    string("label", required = false)
+}
+```
+
+`Constraint.json()` only guarantees the answer *parses*; these guarantee the shape,
+which is what makes slot extraction on a small model reliable rather than a validate
+-and-retry loop.
+
 ### Not waiting for a model swap
 
 ```kotlin

@@ -31,8 +31,10 @@ object TaraCoreContract {
      *   service ignores the field, so a client that depends on the constraint must
      *   check the version rather than assume: unconstrained output is
      *   indistinguishable from a model that simply disobeyed.
+     * - **3** — adds [ITaraCore.warmUp] and [ServiceStatus.activeModelId]. Calling
+     *   warmUp on a v2 service throws; the field simply reads null.
      */
-    const val API_VERSION = 2
+    const val API_VERSION = 3
 
     /** Prompts larger than this must travel by [GenerationRequest.largePrompt]. */
     const val INLINE_PROMPT_LIMIT_BYTES = 512 * 1024

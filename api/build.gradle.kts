@@ -30,6 +30,9 @@ android {
         getByName("main") {
             kotlin.srcDir("src/main/kotlin")
         }
+        getByName("test") {
+            kotlin.srcDir("src/test/kotlin")
+        }
     }
 
     publishing {
@@ -40,8 +43,10 @@ android {
 }
 
 dependencies {
-    // Intentionally empty: :api is the wire contract and must stay dependency-free
-    // so that any consumer can depend on it without dragging in transitive versions.
+    // Intentionally empty for `implementation`/`api`: :api is the wire contract and
+    // must stay dependency-free so that any consumer can depend on it without
+    // dragging in transitive versions. Test-only dependencies do not ship.
+    testImplementation(libs.junit)
 }
 
 publishing {

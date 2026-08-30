@@ -95,9 +95,14 @@ private fun ModelCard(
     onSetActive: () -> Unit,
 ) {
     val fits = model.estRamBytes <= availableRam
-    val downloading = progress?.state == DownloadProgress.State.DOWNLOADING ||
-        progress?.state == DownloadProgress.State.QUEUED ||
-        progress?.state == DownloadProgress.State.VERIFYING
+    // Non-null exactly when a transfer is in flight, so the UI below needs one check
+    // rather than a state test and a null test that the compiler knows are redundant.
+    val inFlight = progress?.takeIf {
+        it.state == DownloadProgress.State.DOWNLOADING ||
+            it.state == DownloadProgress.State.QUEUED ||
+            it.state == DownloadProgress.State.VERIFYING
+    }
+    val downloading = inFlight != null
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp)) {
@@ -147,19 +152,19 @@ private fun ModelCard(
                 modifier = Modifier.padding(top = 6.dp),
             )
 
-            if (downloading && progress != null) {
+            if (inFlight != null) {
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     LinearProgressIndicator(
-                        progress = { progress.fraction },
+                        progress = { inFlight.fraction },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Text(
-                        when (progress.state) {
+                        when (inFlight.state) {
                             DownloadProgress.State.QUEUED -> "Queued"
                             DownloadProgress.State.VERIFYING -> "Verifying checksum…"
-                            else -> "${formatPercent(progress.fraction)} · " +
-                                "${formatBytes(progress.bytesDownloaded)} of " +
-                                formatBytes(progress.totalBytes)
+                            else -> "${formatPercent(inFlight.fraction)} · " +
+                                "${formatBytes(inFlight.bytesDownloaded)} of " +
+                                formatBytes(inFlight.totalBytes)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(top = 4.dp),

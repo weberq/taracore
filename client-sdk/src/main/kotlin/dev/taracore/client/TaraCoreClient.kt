@@ -230,6 +230,61 @@ class TaraCoreClient(context: Context) : AutoCloseable {
     suspend fun unload() = withContext(Dispatchers.IO) { require().unloadModel() }
 
     /**
+     * Ask the service to make the user's active model resident, ahead of time.
+     *
+     * Call it when your app comes to the foreground, not on the request path. The
+     * idle unloader drops the model after a few minutes, so without this the first
+     * question of any given hour pays a full model load inside a request the user is
+     * waiting on.
+     *
+     * The service may decline -- it does when nothing is downloaded, or when the
+     * model would not fit in the memory currently available. Declining is reported as
+     * [LoadProgress.Failed] rather than thrown, because a refused warm-up is a normal
+     * outcome and not something a caller should have to guard with try/catch. The
+     * next real request still works; it just pays the load.
+     *
+     * Takes no model id on purpose: the engine is shared, and picking a model on
+     * every other app's behalf would be overstepping.
+     *
+     * Requires a service reporting API version 3 or higher.
+     */
+    fun warmUp(): Flow<LoadProgress> = callbackFlow {
+        val svc = require()
+
+        val callback = object : IModelCallback.Stub() {
+            override fun onProgress(id: String?, progress: Float) {
+                trySend(LoadProgress.Progress(id.orEmpty(), progress))
+            }
+
+            override fun onLoaded(id: String?, ramBytes: Long, backend: String?) {
+                trySend(LoadProgress.Loaded(id.orEmpty(), ramBytes, backend.orEmpty()))
+                close()
+            }
+
+            override fun onError(id: String?, code: Int, message: String?) {
+                // Not close(exception): a declined warm-up is an outcome, not a fault.
+                trySend(LoadProgress.Failed(id.orEmpty(), code, message.orEmpty()))
+                close()
+            }
+        }
+
+        liveStreams["warmup"] = { close(it) }
+        withContext(Dispatchers.IO) { svc.warmUp(callback) }
+
+        awaitClose { liveStreams.remove("warmup") }
+    }
+
+    /**
+     * Fire-and-forget [warmUp], for a caller that has nothing to do with the outcome.
+     *
+     * Returns false when the service is too old to support it, so a caller can tell
+     * "not warmed" from "cannot warm".
+     */
+    suspend fun warmUpQuietly(): Boolean = withContext(Dispatchers.IO) {
+        runCatching { require().warmUp(null) }.isSuccess
+    }
+
+    /**
      * Run a completion and return the whole answer.
      *
      * @throws InferenceException when the engine reports a failure
@@ -463,6 +518,9 @@ data class ChatParams(
  */
 object Constraint {
 
+    /** Field types available to [schema]. */
+    enum class Type { STRING, INTEGER, NUMBER, BOOLEAN }
+
     /** The answer must be exactly one of [options]. */
     @JvmStatic
     fun oneOf(vararg options: String): String = Gbnf.choice(options.toList())
@@ -471,13 +529,111 @@ object Constraint {
     @JvmStatic
     fun oneOf(options: List<String>): String = Gbnf.choice(options)
 
-    /** The answer must be a well-formed JSON object. */
+    /** The answer must be a well-formed JSON object, of any shape. */
     @JvmStatic
     fun json(): String = Gbnf.jsonObject()
+
+    /**
+     * A JSON object with exactly these keys, in this order, all required.
+     *
+     * The common case for slot extraction, and the reason to constrain a small model
+     * at all: [json] only guarantees the answer *parses*, so the client still has to
+     * validate the keys and retry. This guarantees the shape.
+     *
+     * ```kotlin
+     * Constraint.schema("hour" to Type.INTEGER, "minute" to Type.INTEGER)
+     * ```
+     * → `{"hour": 7, "minute": 30}`
+     */
+    @JvmStatic
+    fun schema(vararg fields: Pair<String, Type>): String = schema(fields.toList())
+
+    /** @see schema */
+    @JvmStatic
+    fun schema(fields: List<Pair<String, Type>>): String {
+        require(fields.isNotEmpty()) { "a schema needs at least one field" }
+        return Gbnf.jsonSchema(
+            Gbnf.SchemaNode.Obj(
+                properties = fields.map { (name, type) -> name to type.toNode() },
+                required = fields.map { it.first }.toSet(),
+            )
+        )
+    }
+
+    /**
+     * A JSON object built field by field, for shapes [schema] cannot express:
+     * optional keys, fixed value sets, arrays and nesting.
+     *
+     * ```kotlin
+     * Constraint.obj {
+     *     integer("hour")
+     *     integer("minute")
+     *     oneOf("period", "am", "pm")
+     *     string("label", required = false)
+     * }
+     * ```
+     *
+     * Required fields are emitted in declaration order, which is what makes a small
+     * model reliable here: it never has to decide what comes next.
+     */
+    @JvmStatic
+    fun obj(block: ObjectBuilder.() -> Unit): String =
+        Gbnf.jsonSchema(ObjectBuilder().apply(block).build())
 
     /** Raw GBNF, for anything the helpers above cannot express. */
     @JvmStatic
     fun gbnf(grammar: String): String = grammar
+
+    private fun Type.toNode(): Gbnf.SchemaNode = when (this) {
+        Type.STRING -> Gbnf.SchemaNode.StringType
+        Type.INTEGER -> Gbnf.SchemaNode.IntegerType
+        Type.NUMBER -> Gbnf.SchemaNode.NumberType
+        Type.BOOLEAN -> Gbnf.SchemaNode.BooleanType
+    }
+
+    /**
+     * Assembles a fixed-shape JSON object without the caller ever naming
+     * `Gbnf.SchemaNode`, which is the lower-level type `:api` exposes for the HTTP
+     * layer's use.
+     */
+    class ObjectBuilder internal constructor() {
+        private val fields = mutableListOf<Pair<String, Gbnf.SchemaNode>>()
+        private val required = mutableSetOf<String>()
+
+        fun string(name: String, required: Boolean = true) =
+            add(name, Gbnf.SchemaNode.StringType, required)
+
+        fun integer(name: String, required: Boolean = true) =
+            add(name, Gbnf.SchemaNode.IntegerType, required)
+
+        fun number(name: String, required: Boolean = true) =
+            add(name, Gbnf.SchemaNode.NumberType, required)
+
+        fun boolean(name: String, required: Boolean = true) =
+            add(name, Gbnf.SchemaNode.BooleanType, required)
+
+        /** The field's value must be exactly one of [values]. */
+        fun oneOf(name: String, vararg values: String, required: Boolean = true) =
+            add(name, Gbnf.SchemaNode.Enum(values.map { "\"$it\"" }), required)
+
+        /** An array whose elements are all of [type]. */
+        fun array(name: String, type: Type, required: Boolean = true, minItems: Int = 0) =
+            add(name, Gbnf.SchemaNode.Arr(type.toNode(), minItems), required)
+
+        /** A nested object. */
+        fun obj(name: String, required: Boolean = true, block: ObjectBuilder.() -> Unit) =
+            add(name, ObjectBuilder().apply(block).build(), required)
+
+        private fun add(name: String, node: Gbnf.SchemaNode, isRequired: Boolean) {
+            fields += name to node
+            if (isRequired) required += name
+        }
+
+        internal fun build(): Gbnf.SchemaNode.Obj {
+            require(fields.isNotEmpty()) { "a schema needs at least one field" }
+            return Gbnf.SchemaNode.Obj(properties = fields.toList(), required = required.toSet())
+        }
+    }
 }
 
 /** Emission of [TaraCoreClient.chatStreamDetailed]. */

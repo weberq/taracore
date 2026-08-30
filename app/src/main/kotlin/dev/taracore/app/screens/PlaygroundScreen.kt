@@ -54,6 +54,10 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
+    // Warm on arrival rather than on send, so the load happens while the user is
+    // still deciding what to type instead of after they have asked.
+    LaunchedEffect(Unit) { viewModel.warmUp() }
+
     LaunchedEffect(turns.size, turns.lastOrNull()?.text?.length) {
         if (turns.isNotEmpty()) listState.animateScrollToItem(turns.lastIndex)
     }

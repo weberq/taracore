@@ -335,6 +335,7 @@ class TaraCoreService : Service() {
             httpPort = currentSettings.httpPort,
             unloadedUnderMemoryPressure = unloadedUnderPressure.get(),
             engineVersion = engine.llamaVersion,
+            activeModelId = currentSettings.activeModelId,
         )
     }
 
@@ -757,6 +758,49 @@ class TaraCoreService : Service() {
             // Try the queue first: a request that has not started needs removing, not
             // interrupting, and cancelling the engine would hit whatever is running.
             if (!queue.cancelQueued(id)) engine.cancel(id)
+        }
+
+        override fun warmUp(cb: IModelCallback?) {
+            enforcePermission()
+            val uid = Binder.getCallingUid()
+            clients.recordRequest(uid)
+
+            scope.launch {
+                val activeId = currentSettings.activeModelId
+                val firstDownloaded = repository.downloaded().firstOrNull()?.id
+                val wantedId = activeId ?: firstDownloaded
+
+                val decision = WarmUpPolicy.decide(
+                    residentModelId = engine.loadedModelId?.takeIf { engine.isLoaded() },
+                    activeModelId = activeId,
+                    firstDownloadedId = firstDownloaded,
+                    candidate = wantedId?.let { repository.byId(it) },
+                    availableMemoryBytes = repository.availableMemoryBytes(),
+                )
+
+                when (decision) {
+                    is WarmUpDecision.AlreadyResident ->
+                        runCatching { cb?.onLoaded(decision.modelId, 0L, engine.backend) }
+
+                    is WarmUpDecision.Decline -> {
+                        Log.i(TAG, "warmUp declined: ${decision.reason}")
+                        runCatching {
+                            cb?.onError(wantedId.orEmpty(), decision.code, decision.reason)
+                        }
+                    }
+
+                    is WarmUpDecision.Proceed -> {
+                        Log.i(TAG, "warming ${decision.modelId} on behalf of " +
+                            clients.packageNameFor(uid))
+                        // Deliberately does NOT touch the idle timer. Warming is not
+                        // use, and a warm that reset the countdown would keep the
+                        // model resident for an app that never went on to ask
+                        // anything.
+                        enterForeground()
+                        ensureModelLoaded(decision.modelId, cb, allowAutoLoad = true)
+                    }
+                }
+            }
         }
     }
 

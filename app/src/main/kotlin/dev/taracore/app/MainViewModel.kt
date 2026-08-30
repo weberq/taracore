@@ -244,6 +244,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Ask the service to make the active model resident before the user types.
+     *
+     * Called when the Playground opens, not on send: the idle unloader drops the
+     * model after a few minutes, so without this the first message of any given
+     * session pays a full load while the user waits on it.
+     *
+     * The service may decline -- under memory pressure it should -- and that is not
+     * worth telling the user about, because the next message still works and simply
+     * pays the load. Only a genuine failure is surfaced.
+     */
+    fun warmUp() {
+        if (_warmed) return
+        _warmed = true
+        viewModelScope.launch {
+            runCatching {
+                client.warmUp().collect { progress ->
+                    when (progress) {
+                        is LoadProgress.Loaded ->
+                            Log.i(TAG, "warmed ${progress.modelId} on ${progress.backend}")
+                        is LoadProgress.Failed ->
+                            Log.i(TAG, "warm-up declined: ${progress.message}")
+                        is LoadProgress.Progress -> Unit
+                    }
+                }
+            }.onFailure {
+                // An older service has no warmUp. Nothing is wrong; the next request
+                // loads the model the ordinary way.
+                Log.i(TAG, "warm-up unavailable: ${it.message}")
+                _warmed = false
+            }
+        }
+    }
+
+    /** Warm at most once per ViewModel; repeated tab visits should not reload. */
+    private var _warmed = false
+
     // ------------------------------------------------------------ playground
 
     fun send(prompt: String) {

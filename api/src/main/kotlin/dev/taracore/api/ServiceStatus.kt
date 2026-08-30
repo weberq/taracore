@@ -26,6 +26,14 @@ data class ServiceStatus(
     /** True when the last unload was forced by onTrimMemory rather than the timer. */
     @JvmField val unloadedUnderMemoryPressure: Boolean = false,
     @JvmField val engineVersion: String = "",
+    /**
+     * The model the user selected, which is not necessarily the one resident: the
+     * idle unloader may have dropped it. Added in API version 3.
+     *
+     * A client that wants to pre-warm needs this, because [loadedModelId] is null
+     * exactly when warming would help most.
+     */
+    @JvmField val activeModelId: String? = null,
 ) : Parcelable {
 
     object State {
@@ -50,6 +58,9 @@ data class ServiceStatus(
         httpPort = source.readInt(),
         unloadedUnderMemoryPressure = source.readInt() != 0,
         engineVersion = source.readString().orEmpty(),
+        // Appended in API v3. An older service writes a shorter parcel, so read this
+        // only if there are bytes left.
+        activeModelId = if (source.dataAvail() > 0) source.readString() else null,
     )
 
     override fun writeToParcel(dest: Parcel, flags: Int) {
@@ -66,6 +77,8 @@ data class ServiceStatus(
         dest.writeInt(httpPort)
         dest.writeInt(if (unloadedUnderMemoryPressure) 1 else 0)
         dest.writeString(engineVersion)
+        // New fields go here, at the end, and readers must tolerate their absence.
+        dest.writeString(activeModelId)
     }
 
     override fun describeContents(): Int = 0

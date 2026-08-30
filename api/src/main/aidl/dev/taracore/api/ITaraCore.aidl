@@ -56,4 +56,28 @@ interface ITaraCore {
      * text and {@code cancelled = true}.
      */
     void cancel(String requestId);
+
+    // ---- Added in API version 2 ----
+    // (GenerationRequest.grammar is a parcel field, not a method; no entry here.)
+
+    // ---- Added in API version 3 ----
+
+    /**
+     * Make the user's active model resident, at the service's leisure.
+     *
+     * "At its leisure" is the point: the service may decline, and a client is not in
+     * a position to know whether it should. It declines when nothing is downloaded,
+     * and when the model would not fit in the memory currently available -- warming
+     * is an optimisation, and it must never be the thing that pushes the device into
+     * reclaiming another app's pages.
+     *
+     * Call this when your app comes to the foreground, not on the request path.
+     * The alternative is that the first question of any hour pays a full model load,
+     * inside a request the user is waiting on, because the idle unloader has been.
+     *
+     * Deliberately takes no model id. The engine is shared, and a client choosing a
+     * model on everyone else's behalf would be overstepping; this loads whatever the
+     * *user* configured. Pass null for {@code cb} to fire and forget.
+     */
+    void warmUp(IModelCallback cb);
 }

@@ -43,9 +43,9 @@ object Gbnf {
      * understand degrades to "any JSON value" for that position rather than throwing,
      * because a slightly loose constraint is far better than a failed request.
      *
-     * Properties are emitted in declaration order and every declared property is
-     * required unless `required` says otherwise -- models are much more reliable at
-     * filling a fixed shape than at deciding which optional keys to include.
+     * Properties are emitted in declaration order. A schema that does not say which
+     * keys are required gets all of them -- models are much more reliable at filling
+     * a fixed shape than at deciding which optional keys to include.
      */
     fun jsonSchema(schema: SchemaNode): String {
         val rules = LinkedHashMap<String, String>()
@@ -65,9 +65,16 @@ object Gbnf {
      * and can be unit-tested without one.
      */
     sealed interface SchemaNode {
+        /**
+         * @param required which keys must appear. **null means "not specified"**,
+         *   which is treated as *all of them* -- a fixed shape is far easier for a
+         *   small model than deciding which optional keys to include. An empty set
+         *   means the caller explicitly wants every key optional; the two are not
+         *   the same, and conflating them silently made every field mandatory.
+         */
         data class Obj(
             val properties: List<Pair<String, SchemaNode>>,
-            val required: Set<String>,
+            val required: Set<String>? = null,
         ) : SchemaNode
 
         data class Arr(val items: SchemaNode?, val minItems: Int = 0) : SchemaNode
@@ -127,7 +134,7 @@ object Gbnf {
                     key to build(child, "$preferredName-${sanitise(key)}", rules)
                 }
                 val name = unique(preferredName, rules)
-                val required = node.required.ifEmpty { node.properties.map { it.first }.toSet() }
+                val required = node.required ?: node.properties.map { it.first }.toSet()
 
                 // Required keys are emitted in a fixed order; optional ones are each
                 // wrapped so they may be skipped. Fixing the order is what makes a

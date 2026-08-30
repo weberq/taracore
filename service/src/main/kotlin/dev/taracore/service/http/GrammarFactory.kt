@@ -97,10 +97,11 @@ object GrammarFactory {
                 val props = (obj["properties"] as? JsonObject)
                     ?.map { (key, value) -> key to parse(value) }
                     .orEmpty()
+                // Null rather than emptySet when the schema is silent: "not stated"
+                // means "assume all", while an explicit empty list means "none".
                 val required = (obj["required"] as? JsonArray)
                     ?.mapNotNull { (it as? JsonPrimitive)?.content }
                     ?.toSet()
-                    .orEmpty()
                 Gbnf.SchemaNode.Obj(properties = props, required = required)
             }
 
@@ -122,7 +123,7 @@ object GrammarFactory {
                     properties = (obj["properties"] as JsonObject)
                         .map { (key, value) -> key to parse(value) },
                     required = (obj["required"] as? JsonArray)
-                        ?.mapNotNull { (it as? JsonPrimitive)?.content }?.toSet().orEmpty(),
+                        ?.mapNotNull { (it as? JsonPrimitive)?.content }?.toSet(),
                 )
             } else {
                 Gbnf.SchemaNode.AnyType

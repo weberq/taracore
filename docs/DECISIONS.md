@@ -295,7 +295,45 @@ its token returns `401`, and the obvious conclusion is that auth is broken.
 If a future build ever needs values carried across a store change, migrate *then*
 delete; there was nothing here worth keeping.
 
-## D24 — JDK selection stays out of the repository
+## D24 — `warmUp()` is a request the service may refuse, not an exposed model id
+
+Issue #5 offered three shapes for pre-warming: expose `activeModelId`, add an
+`active` flag to `ModelInfo`, or add a `warmUp()` the service can decline. The
+reporter argued for the third because it "gives the service a place to say no", and
+that is right — a client cannot reason about whether loading a gigabyte right now is
+a good idea for the device as a whole.
+
+Both `warmUp()` and `ServiceStatus.activeModelId` landed: the call for the capability,
+the field so a client can *show* what is being warmed. `ModelInfo.active` was left
+out — a third place to learn the same fact, with a third chance to disagree.
+
+`warmUp` takes no model id, deliberately. The engine is shared, and a client naming a
+model would be choosing for every other app on the device.
+
+The refusals are the substance, so they live in `WarmUpPolicy` as a pure function
+rather than inside the Stub method. Free memory moves between runs, which makes
+"decline because it will not fit" the one branch a device test cannot pin down; as a
+function it is eight unit tests.
+
+Note the asymmetry with `loadModel`: an explicit user choice loads even when the
+estimate says it will be tight, because they asked and the Models screen already
+warned. A speculative warm-up on behalf of a backgrounded app defers instead. Warming
+also does **not** touch the idle timer — warming is not use, and resetting the
+countdown would keep a model resident for an app that never went on to ask anything.
+
+## D25 — `Gbnf.SchemaNode.Obj.required` is nullable, and null is not the empty set
+
+Found while adding the SDK's schema builder (issue #4). The original code did
+`required.ifEmpty { allKeys }`, conflating "the schema did not say" with "the caller
+explicitly wants everything optional" — so a builder marking every field optional
+would have produced a grammar making them all mandatory.
+
+`required` is now `Set<String>?`: null means unspecified and is still treated as *all
+required* (a fixed shape is far easier for a small model than deciding which optional
+keys to include), while an empty set means exactly what it says. `GrammarFactory`
+passes null when the incoming JSON Schema has no `required` key.
+
+## D26 — JDK selection stays out of the repository
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

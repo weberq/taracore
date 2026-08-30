@@ -186,6 +186,8 @@ just do not read a valid answer as a considered one.
   constrained decoding that already landed.
 - **LoRA adapters** — `llama_adapter_lora` lets one base model serve several
   fine-tunes at a few megabytes each, rather than a full model per task.
+- **Batch warm-up policy** — `warmUp` currently decides per call; a service-wide
+  policy could also defer while on battery or thermally throttled.
 - **Confidence signals** — `logprobs` on the response, so a client can tell a
   considered answer from a coerced one and fall back rather than commit. The gap the
   table above measures is the argument for it.

@@ -63,6 +63,15 @@ Frees the model and its KV cache. Idempotent. The next generation reloads lazily
 In-memory snapshot: state, loaded model, backend, queue depth, last tokens/s, idle
 countdown, HTTP server state. Cheap enough to poll at 1 Hz.
 
+`activeModelId` *(API version 3)* is the model the user **selected**, which is not
+necessarily `loadedModelId` — the idle unloader may have dropped it. It is null on an
+older service.
+
+Polling this is also how a client tells "still loading" from "still generating" during
+a `startStream`: the state goes `LOADING` then `GENERATING`. It cannot be done during
+a blocking `generate`, which is one more reason to prefer streaming for anything
+interactive.
+
 #### `GenerationResult generate(GenerationRequest req)`
 
 Blocking. The calling thread is parked for the whole completion — hundreds of
@@ -75,6 +84,32 @@ transaction into that process; prefer `startStream` for anything interactive.
 Returns the request id immediately. Tokens arrive on `cb.onToken` (a `oneway` call,
 so a slow client never stalls the sampling loop), then exactly one of `onDone` /
 `onError`.
+
+#### `void warmUp(IModelCallback cb)` *(API version 3)*
+
+Make the user's active model resident, ahead of time. Call it when your app comes to
+the foreground, not on the request path.
+
+The idle unloader drops the model after a few minutes by default, so without this the
+first request of any given session pays a full model load — reading a gigabyte off
+storage — inside a call the user is waiting on.
+
+It takes **no model id** on purpose. The engine is shared with every other app on the
+device, and a client picking a model on everyone's behalf would be overstepping; this
+loads whatever the *user* configured.
+
+**The service may decline**, and that is the reason this is a call rather than an
+exposed id you load yourself. It declines when nothing is downloaded, and when the
+model would not fit in the memory currently available — warming is an optimisation
+and must never be the thing that pushes the device into reclaiming another app's
+pages. A decline arrives as `onError` and is a normal outcome, not a fault: the next
+real request still works, it just pays the load.
+
+Note the asymmetry with `loadModel`: an explicit user choice in the Models screen
+loads even when the estimate says it will be tight, because they asked for it and the
+UI already warned them. A speculative warm-up defers instead.
+
+Passing `null` for `cb` is fire-and-forget.
 
 #### `void cancel(String requestId)`
 

@@ -117,9 +117,23 @@ it where the instrumented test expects it:
 Needs a physical arm64 device or an x86_64 emulator (the debug build carries both):
 
 ```bash
-./scripts/fetch-model.sh --tiny
+./scripts/fetch-model.sh --tiny --no-push
 ./gradlew :engine:connectedCpuDebugAndroidTest
 ```
+
+The GGUF is staged **into the test APK** by the `stageTestModel` Gradle task and
+extracted to the cache directory at runtime. It is not pushed to the device, and this
+is not an arbitrary choice: `connectedAndroidTest` uninstalls the test package when it
+finishes, which takes `/sdcard/Android/data/<pkg>/` with it, so anything pushed
+beforehand is either already gone or was created by `shell` and is invisible to the
+app's storage sandbox. Shipping it inside the APK avoids all of that and behaves
+identically on CI.
+
+With no model on disk the task stages nothing and every model-dependent test skips
+itself, so the run still proves the JNI layer compiles, links and loads.
+
+Verified on a Pixel 9a (Tensor G4, Android 17): 6/6 tests pass, SmolLM2-135M Q4_K_M
+generating at ~28 tok/s on CPU.
 
 ## Troubleshooting
 

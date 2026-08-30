@@ -1,5 +1,6 @@
 package dev.taracore.api
 
+import android.os.Build
 import android.os.Parcel
 import android.os.ParcelFileDescriptor
 import android.os.Parcelable
@@ -55,9 +56,7 @@ data class GenerationRequest(
         repeatPenalty = source.readFloat(),
         stop = ArrayList<String>().also { source.readStringList(it) },
         seed = source.readLong(),
-        largePrompt = source.readParcelable(
-            ParcelFileDescriptor::class.java.classLoader,
-        ),
+        largePrompt = source.readPfd(),
         allowAutoLoad = source.readInt() != 0,
     )
 
@@ -84,6 +83,21 @@ data class GenerationRequest(
         messages.sumOf { it.role.length + it.content.length * 3 + 8 }
 
     companion object {
+        /**
+         * The single-argument readParcelable was deprecated in API 33 in favour of a
+         * typed overload. minSdk is 26, so both paths have to exist.
+         */
+        private fun Parcel.readPfd(): ParcelFileDescriptor? =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                readParcelable(
+                    ParcelFileDescriptor::class.java.classLoader,
+                    ParcelFileDescriptor::class.java,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                readParcelable(ParcelFileDescriptor::class.java.classLoader)
+            }
+
         @JvmField
         val CREATOR: Parcelable.Creator<GenerationRequest> =
             object : Parcelable.Creator<GenerationRequest> {

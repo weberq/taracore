@@ -32,8 +32,12 @@ import java.io.FileInputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -115,7 +119,7 @@ class TaraCoreService : Service() {
             maybeLeaveForeground()
         }
 
-        queue = RequestQueue(scope) { queued -> runQueued(queued) }
+        queue = RequestQueue(scope)
         queue.start()
 
         scope.launch {
@@ -579,42 +583,72 @@ class TaraCoreService : Service() {
                 val genRequest = toGenRequest(request, requestId)
                 requestOwners[requestId] = uid
 
-                val text = StringBuilder()
-                var result: GenerationResult? = null
+                // Through the queue like every other path, so a synchronous caller
+                // waits its turn rather than overtaking clients that asked first.
+                // This is why docs/API.md calls generate() main-thread-hostile: the
+                // wait now includes the queue as well as the generation.
+                val outcome = CompletableDeferred<GenerationResult>()
 
-                engine.stream(genRequest).collect { event ->
-                    when (event) {
-                        is GenEvent.Token -> text.append(event.piece)
-                        is GenEvent.Done -> {
-                            lastTokensPerSecond = event.stats.genTokensPerSecond
-                            clients.recordTokens(uid, event.stats.genTokens)
-                            result = GenerationResult(
-                                requestId = requestId,
-                                text = event.text,
-                                modelId = engine.loadedModelId.orEmpty(),
-                                promptTokens = event.stats.promptTokens,
-                                generatedTokens = event.stats.genTokens,
-                                promptMs = event.stats.promptMs,
-                                generationMs = event.stats.genMs,
-                                cancelled = event.stats.cancelled,
-                                stopped = event.stats.stopped,
+                val accepted = queue.submit(
+                    RequestQueue.QueuedRequest(
+                        request = genRequest,
+                        callerUid = uid,
+                        callerPackage = clients.packageNameFor(uid),
+                        run = {
+                            var result: GenerationResult? = null
+                            engine.stream(genRequest).collect { event ->
+                                when (event) {
+                                    is GenEvent.Token -> Unit
+                                    is GenEvent.Done -> {
+                                        lastTokensPerSecond = event.stats.genTokensPerSecond
+                                        clients.recordTokens(uid, event.stats.genTokens)
+                                        result = GenerationResult(
+                                            requestId = requestId,
+                                            text = event.text,
+                                            modelId = engine.loadedModelId.orEmpty(),
+                                            promptTokens = event.stats.promptTokens,
+                                            generatedTokens = event.stats.genTokens,
+                                            promptMs = event.stats.promptMs,
+                                            generationMs = event.stats.genMs,
+                                            cancelled = event.stats.cancelled,
+                                            stopped = event.stats.stopped,
+                                        )
+                                    }
+                                    is GenEvent.Error -> result = GenerationResult.error(
+                                        requestId, TaraCoreErrors.ENGINE_FAILURE, event.message
+                                    )
+                                }
+                            }
+                            outcome.complete(
+                                result ?: GenerationResult.error(
+                                    requestId,
+                                    TaraCoreErrors.ENGINE_FAILURE,
+                                    "generation produced no result",
+                                )
                             )
-                        }
-                        is GenEvent.Error -> {
-                            result = GenerationResult.error(
-                                requestId, TaraCoreErrors.ENGINE_FAILURE, event.message
-                            )
-                        }
-                    }
+                        },
+                        onRejected = { code, message ->
+                            outcome.complete(GenerationResult.error(requestId, code, message))
+                        },
+                    )
+                )
+
+                // submit() already reported the rejection through onRejected; this
+                // only guards against the deferred never being completed at all.
+                if (!accepted && !outcome.isCompleted) {
+                    outcome.complete(
+                        GenerationResult.error(
+                            requestId, TaraCoreErrors.QUEUE_FULL, "inference queue is full"
+                        )
+                    )
                 }
+
+                val result = outcome.await()
 
                 requestOwners.remove(requestId)
                 idle.touch()
                 updateNotification()
-
-                result ?: GenerationResult.error(
-                    requestId, TaraCoreErrors.ENGINE_FAILURE, "generation produced no result"
-                )
+                result
             }
         }
 
@@ -663,6 +697,7 @@ class TaraCoreService : Service() {
                         request = genRequest,
                         callerUid = uid,
                         callerPackage = clients.packageNameFor(uid),
+                        run = { queued -> runQueued(queued) },
                         onRejected = { code, message ->
                             streamCallbacks.remove(requestId)
                             requestOwners.remove(requestId)
@@ -709,19 +744,55 @@ class TaraCoreService : Service() {
 
         override fun newRequestId(): String = UUID.randomUUID().toString()
 
+        /**
+         * HTTP requests go through the same FIFO as AIDL requests. The engine's own
+         * mutex would serialise them anyway, but queueing means an HTTP caller shows
+         * up in `queueDepth`, is subject to the same capacity limit, and cannot jump
+         * ahead of a bound client that asked first.
+         */
         override fun stream(
             requestId: String,
             messages: List<ChatMessageParcel>,
             rawPrompt: String?,
             params: GenParams,
-        ) = engine.stream(
-            GenRequest(
+        ): Flow<GenEvent> = callbackFlow {
+            val genRequest = GenRequest(
                 requestId = requestId,
                 messages = messages.map { ChatMessage(it.role, it.content) },
                 params = params,
                 rawPrompt = rawPrompt,
             )
-        )
+
+            val accepted = queue.submit(
+                RequestQueue.QueuedRequest(
+                    request = genRequest,
+                    // The HTTP server is in-process, so there is no caller uid to
+                    // attribute this to beyond our own.
+                    callerUid = android.os.Process.myUid(),
+                    callerPackage = "http://127.0.0.1",
+                    run = {
+                        engine.stream(genRequest).collect { event ->
+                            trySend(event)
+                            if (event is GenEvent.Done) lastTokensPerSecond =
+                                event.stats.genTokensPerSecond
+                        }
+                        close()
+                    },
+                    onRejected = { code, message ->
+                        trySend(GenEvent.Error("[$code] $message"))
+                        close()
+                    },
+                )
+            )
+
+            if (!accepted) close()
+
+            awaitClose {
+                // The client hung up, or the response finished. Either way the queue
+                // entry must not outlive it.
+                if (!queue.cancelQueued(requestId)) engine.cancel(requestId)
+            }
+        }
 
         override fun onFinished(tokensPerSecond: Double) {
             lastTokensPerSecond = tokensPerSecond

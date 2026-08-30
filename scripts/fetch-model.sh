@@ -58,6 +58,11 @@ fi
 
 echo "sha256: $(sha256sum "$OUT" | cut -d' ' -f1)"
 
+# The instrumented tests do NOT read from the device filesystem: the model is staged
+# into the test APK by the stageTestModel Gradle task, because connectedAndroidTest
+# uninstalls the test package afterwards and takes its external files directory with
+# it. The push below is only a convenience for the Tara Core app itself, so the
+# Playground has something to run without downloading it on the phone.
 if [[ "$PUSH" -eq 1 ]]; then
     if ! command -v adb >/dev/null 2>&1; then
         echo "adb not on PATH; skipping push" >&2
@@ -68,16 +73,17 @@ if [[ "$PUSH" -eq 1 ]]; then
         exit 0
     fi
 
-    # The instrumented test reads from the app's external files dir, which is
-    # world-writable via adb without root and survives an app reinstall.
-    DEST="/sdcard/Android/data/dev.taracore.engine.test/files/models"
-    adb shell "mkdir -p '$DEST'" || true
-    echo "pushing to $DEST/$NAME"
-    adb push "$OUT" "$DEST/$NAME"
-
-    # Also place it where the app itself looks, so the Playground has something to run.
+    # Where the Tara Core app looks. ModelRepository.sync() adopts any .gguf it finds
+    # here as a side-loaded model, so it shows up in the picker on next launch.
     APP_DEST="/sdcard/Android/data/dev.taracore/files/models"
-    adb shell "mkdir -p '$APP_DEST'" 2>/dev/null && adb push "$OUT" "$APP_DEST/$NAME" || true
+    if adb shell "mkdir -p '$APP_DEST'" 2>/dev/null; then
+        echo "pushing to $APP_DEST/$NAME"
+        adb push "$OUT" "$APP_DEST/$NAME"
+    else
+        echo "could not create $APP_DEST (install Tara Core first); skipping push" >&2
+    fi
 
-    echo "done. run: ./gradlew :engine:connectedCpuDebugAndroidTest"
+    echo
+    echo "For the instrumented tests, no push is needed -- just build:"
+    echo "  ./gradlew :engine:connectedCpuDebugAndroidTest"
 fi

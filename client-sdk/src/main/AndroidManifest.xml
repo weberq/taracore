@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Merged into every consuming app. Android 11+ package visibility means an app
+      cannot see, resolve an intent against, or bind to Tara Core without declaring
+      it, and bindService fails silently rather than throwing, so an app missing this
+      entry sees "service not installed" and has no idea why. Shipping the
+      declaration here means consumers cannot get it wrong.
+    -->
+    <queries>
+        <package android:name="dev.taracore" />
+        <intent>
+            <action android:name="dev.taracore.action.BIND" />
+        </intent>
+    </queries>
+
+    <!--
+      Deliberately NOT declared here:
+      uses-permission android:name="dev.taracore.permission.BIND_INFERENCE"
+
+      A library silently adding a permission to its consumers' manifests is bad
+      manners: the permission shows on the app's details page, and the developer
+      should have made that choice knowingly. TaraCore.permissionDeclaration and
+      docs/INTEGRATION.md carry the one line to paste.
+    -->
+</manifest>

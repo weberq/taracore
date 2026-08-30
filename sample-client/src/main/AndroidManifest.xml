@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The permission Tara Core defines. protectionLevel is "normal", so this is
+      granted at install time with no runtime prompt.
+    -->
+    <uses-permission android:name="dev.taracore.permission.BIND_INFERENCE" />
+
+    <!-- For the HTTP tab. The AIDL tab needs no network permission at all. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Android 11+ package visibility. Without this, bindService returns false and
+      getApplicationInfo throws NameNotFoundException, both of which look like
+      "Tara Core is not installed". :client-sdk's manifest supplies this too; it is
+      repeated here because a real integration guide has to show it.
+    -->
+    <queries>
+        <package android:name="dev.taracore" />
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.TaraCoreSample">
+
+        <activity
+            android:name=".SampleActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

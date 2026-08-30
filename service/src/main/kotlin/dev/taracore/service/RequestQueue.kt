@@ -26,7 +26,6 @@ import kotlinx.coroutines.launch
 class RequestQueue(
     private val scope: CoroutineScope,
     private val capacity: Int = DEFAULT_CAPACITY,
-    private val execute: suspend (QueuedRequest) -> Unit,
 ) {
 
     companion object {
@@ -40,15 +39,35 @@ class RequestQueue(
         const val DEFAULT_CAPACITY = 32
     }
 
-    data class QueuedRequest(
+    /**
+     * Each entry carries its own [run] rather than the queue holding one executor.
+     * Both callers -- the AIDL stub and the HTTP server -- need different plumbing
+     * around the same engine, and this way neither has to be special-cased inside
+     * the queue. It also means every path really does go through the queue, so
+     * `queueDepth` and QUEUE_FULL mean what they say.
+     */
+    class QueuedRequest(
         val request: GenRequest,
         val callerUid: Int,
         val callerPackage: String?,
-        /** Invoked exactly once, whatever the outcome. */
+        /** The work itself. Runs on the queue's single worker coroutine. */
+        val run: suspend (QueuedRequest) -> Unit,
+        /** Invoked exactly once when the request never runs. */
         val onRejected: (code: Int, message: String) -> Unit = { _, _ -> },
     )
 
     private val channel = Channel<QueuedRequest>(capacity = capacity)
+
+    /**
+     * Ids accepted by [submit] and not yet picked up by the worker.
+     *
+     * This exists so [cancelQueued] can tell "waiting in the queue" from "finished
+     * long ago". Without it, a cancel arriving after completion -- which happens on
+     * every HTTP request, because closing the response triggers cleanup -- would add
+     * an id to [cancelledBeforeStart] that the worker will never pop, and the set
+     * would grow without bound for the life of the process.
+     */
+    private val pendingIds = ConcurrentHashMap.newKeySet<String>()
 
     /** Ids that were cancelled before the worker picked them up. */
     private val cancelledBeforeStart = ConcurrentHashMap.newKeySet<String>()
@@ -73,6 +92,7 @@ class RequestQueue(
                 _depth.value = pendingCount.get()
 
                 val id = queued.request.requestId
+                pendingIds.remove(id)
                 if (cancelledBeforeStart.remove(id)) {
                     Log.i(TAG, "$id was cancelled while queued; skipping")
                     queued.onRejected(TaraCoreErrors.CANCELLED, "cancelled while queued")
@@ -81,7 +101,7 @@ class RequestQueue(
 
                 currentRequestId = id
                 try {
-                    execute(queued)
+                    queued.run(queued)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (t: Throwable) {
@@ -101,6 +121,7 @@ class RequestQueue(
 
     /** @return true if queued; false when the queue is full (caller gets QUEUE_FULL). */
     fun submit(queued: QueuedRequest): Boolean {
+        pendingIds.add(queued.request.requestId)
         val result = channel.trySend(queued)
         return if (result.isSuccess) {
             _depth.value = pendingCount.incrementAndGet()
@@ -108,6 +129,7 @@ class RequestQueue(
                 "${queued.callerPackage ?: queued.callerUid} (depth ${_depth.value})")
             true
         } else {
+            pendingIds.remove(queued.request.requestId)
             Log.w(TAG, "rejected ${queued.request.requestId}: queue full at $capacity")
             queued.onRejected(TaraCoreErrors.QUEUE_FULL, "inference queue is full")
             false
@@ -120,6 +142,9 @@ class RequestQueue(
      */
     fun cancelQueued(requestId: String): Boolean {
         if (currentRequestId == requestId) return false
+        // Not running and not waiting means it already finished, or was never ours.
+        // Either way there is nothing to cancel and nothing to remember.
+        if (!pendingIds.contains(requestId)) return false
         cancelledBeforeStart.add(requestId)
         return true
     }
@@ -128,5 +153,7 @@ class RequestQueue(
         worker?.cancel()
         worker = null
         channel.close()
+        pendingIds.clear()
+        cancelledBeforeStart.clear()
     }
 }

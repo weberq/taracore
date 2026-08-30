@@ -10,3 +10,5 @@ captures/
 *.gguf
 app/release/
 docs/.jekyll-cache/
+build/models/
+.kotlin/

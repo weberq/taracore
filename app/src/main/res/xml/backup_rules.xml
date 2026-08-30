@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Settings are worth restoring; several gigabytes of model weights are not, and the
+  API token must not travel between devices. The models directory lives under
+  external files and is excluded explicitly.
+-->
+<full-backup-content>
+    <include domain="sharedpref" path="." />
+    <exclude domain="external" path="models" />
+    <exclude domain="database" path="taracore-models" />
+</full-backup-content>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Tara mark: a four-point star with long vertical and horizontal points and
+  short diagonals, so it reads as a navigational star rather than a sparkle.
+
+  Drawn on a 108dp adaptive-icon canvas. The safe zone for an adaptive foreground is
+  the central 72dp (18dp inset on each side), and the mark is sized to sit inside it
+  so no launcher mask can clip a point.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!--
+      One closed path, eight vertices: tip, inner notch, tip, inner notch...
+      The long points reach 22 from centre; the short diagonal notches sit at 12,
+      which is what gives the star its cross-like proportions.
+    -->
+    <path
+        android:fillColor="#F5C542"
+        android:pathData="M54,32
+                          L58.2,49.8
+                          L76,54
+                          L58.2,58.2
+                          L54,76
+                          L49.8,58.2
+                          L32,54
+                          L49.8,49.8
+                          Z" />
+</vector>

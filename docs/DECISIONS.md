@@ -89,7 +89,93 @@ is always visible.
 
 ---
 
+## D13 — `catalog.json` ships with empty `sha256` fields
+
+`grep -rn "TODO\|FIXME\|XXX" --exclude-dir=third_party` over `.kt`, `.cpp`, `.h`,
+`.kts`, `.xml` and `.sh` returns nothing: there are **no `TODO` markers in the tree**.
+There is, however, one piece of deliberately unfinished *data*, recorded here so it is
+not mistaken for an oversight.
+
+Eighteen of the nineteen catalog entries carry `"sha256": ""`. The nineteenth,
+`smollm2-135m-instruct-q4km`, has a real digest because it is the model
+`scripts/fetch-model.sh --tiny` downloads and the instrumented tests run against, so
+it was actually fetched and hashed during development. The digests are not invented, because a
+fabricated digest is strictly worse than no digest: it would fail verification on a
+correct download and send users hunting a corruption that never happened.
+`ModelDownloadWorker` treats an empty digest as "cannot verify", downloads anyway, and
+logs a warning that an unverified multi-gigabyte binary is about to be mapped into
+memory.
+
+**To close this:** download each catalogued file once, record the real digest, paste it
+in. After that the worker verifies as it streams, at no extra cost, and a mismatch
+deletes the partial file. Until then the protection is HTTPS to Hugging Face and
+nothing more.
+
+`size_bytes` is likewise approximate. It only gates the free-space check; the worker
+trusts the server's `Content-Length` for progress and for what it actually writes.
+
+## D14 — unit tests set `isReturnDefaultValues = true`
+
+`android.util.Log` is a throwing stub in the unit-test JAR. The alternatives were a
+mocking framework, or an injected logger interface threaded through classes that have
+no other reason to want one. These tests exercise queue behaviour and JSON parsing,
+where logging is incidental, so returning defaults is the proportionate answer.
+
+## D15 — `:sample-client` carries a `cpu`/`gpu` dimension it does not use
+
+It never touches native code, so the dimension means nothing to it. It is declared so
+that a single `./gradlew assembleCpuDebug` builds every module in the repository,
+keeping both the acceptance criteria and the CI workflow to one command.
+
+## D16 — every request path goes through `RequestQueue`, HTTP included
+
+The HTTP surface originally called `EngineController.stream` directly. That was
+*correct* — the engine's own mutex serialises regardless — but it meant an HTTP
+request did not appear in `queueDepth`, was not subject to the capacity limit, and
+could overtake a bound client that asked first. `RequestQueue.QueuedRequest` now
+carries its own `run` lambda so both callers share one queue without either being
+special-cased inside it.
+
+The bug this surfaced is worth recording: `cancelQueued` used to record *any* id it
+was handed, and closing an HTTP response cancels by id after the request has already
+finished. Every request served would have added one permanent entry to a set. The
+queue now tracks which ids are actually waiting, so a late cancel is a no-op rather
+than a leak. Covered by a regression test.
+
+## D17 — the instrumented test model ships inside the test APK
+
+The obvious approach is `adb push` into the test app's external files directory. It
+does not work, for two compounding reasons:
+
+1. `connectedAndroidTest` **uninstalls the test package** when the run finishes, and
+   uninstalling removes `/sdcard/Android/data/<pkg>/`. Anything pushed before the run
+   is gone by the time the next one starts.
+2. A directory created by `adb push` is owned by `shell`. Under scoped storage the
+   app's own sandbox view does not include it, so `File.isFile` returns false for a
+   file plainly visible over adb — the failure gives no hint of the cause.
+
+Both were observed on a Pixel 9a running Android 17 before switching approach: the
+tests reported `chosen=null` while `adb shell ls` showed the file sitting there.
+
+So the `stageTestModel` Gradle task copies whatever `scripts/fetch-model.sh`
+downloaded into the androidTest assets, and the test extracts it to `cacheDir` at
+startup — llama.cpp mmaps a real file, and an asset is a compressed zip entry. With
+no model on disk the task copies nothing and every model-dependent test skips itself,
+so a CI run without weights stays green and still proves the JNI layer links and
+loads.
+
+## D18 — JDK selection stays out of the repository
+
+`org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
+tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:
+the default `java` on many Linux boxes is a JRE, and Gradle's failure for that case
+(`does not provide the required capabilities: [JAVA_COMPILER]`) names neither the JDK
+nor the fix.
+
+---
+
 ## Open `TODO`s
 
-*(none yet — this section is filled in as the phases land, and every `TODO` in the
-tree must appear here with a reason)*
+None. `grep -rn "TODO\|FIXME\|XXX" --exclude-dir=third_party` over the source tree
+returns no matches. The one knowingly incomplete item in the repository is the
+catalog's missing SHA-256 digests, recorded as D13 above.

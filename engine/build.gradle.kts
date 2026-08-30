@@ -89,9 +89,37 @@ android {
 
     sourceSets {
         getByName("main") { kotlin.srcDir("src/main/kotlin") }
-        getByName("androidTest") { kotlin.srcDir("src/androidTest/kotlin") }
+        getByName("androidTest") {
+            kotlin.srcDir("src/androidTest/kotlin")
+            // The GGUF is staged into the test APK rather than pushed to the device.
+            // Gradle uninstalls the test package after every run, which wipes
+            // /sdcard/Android/data/<pkg>/, so anything pushed beforehand is either
+            // gone or owned by shell and invisible to the app. Shipping it inside the
+            // APK sidesteps all of that and works identically on CI.
+            assets.srcDir(layout.buildDirectory.dir("generated/androidTestAssets"))
+        }
     }
 }
+
+/**
+ * Copy whatever `scripts/fetch-model.sh` downloaded into the test APK's assets.
+ *
+ * No weights are committed; this stages them at build time if they happen to be
+ * present. With no model on disk the task copies nothing, the assets directory is
+ * empty, and every model-dependent test skips itself rather than failing.
+ */
+val stageTestModel by tasks.registering(Copy::class) {
+    description = "Stages a downloaded GGUF into the androidTest assets."
+    val source = rootProject.layout.buildDirectory.dir("models")
+    from(source) { include("*.gguf") }
+    into(layout.buildDirectory.dir("generated/androidTestAssets/models"))
+}
+
+tasks.matching { it.name.startsWith("generate") && it.name.contains("AndroidTestAssets") }
+    .configureEach { dependsOn(stageTestModel) }
+
+tasks.matching { it.name.startsWith("merge") && it.name.contains("AndroidTestAssets") }
+    .configureEach { dependsOn(stageTestModel) }
 
 dependencies {
     implementation(libs.kotlinx.coroutines.android)

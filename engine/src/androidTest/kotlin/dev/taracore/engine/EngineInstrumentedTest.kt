@@ -3,7 +3,6 @@ package dev.taracore.engine
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
-import kotlin.test.assertContains
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -47,15 +46,53 @@ class EngineInstrumentedTest {
     @Before
     fun setUp() {
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        val dir = File(ctx.getExternalFilesDir(null), "models")
+        modelFile = stagedModel(ctx) ?: pushedModel(ctx)
+        Log.i(TAG, "model chosen: $modelFile")
+        controller = EngineController()
+    }
 
-        modelFile = CANDIDATES.asSequence()
+    /**
+     * The model as shipped inside the test APK by the `stageTestModel` Gradle task.
+     *
+     * Copied out to the cache directory because llama.cpp mmaps a real file and an
+     * asset inside an APK is a compressed entry in a zip, not a file. The copy is
+     * skipped when a previous run already made it, so only the first test in a run
+     * pays for it.
+     */
+    private fun stagedModel(ctx: android.content.Context): File? = try {
+        val names = ctx.assets.list("models").orEmpty().filter { it.endsWith(".gguf") }
+        Log.i(TAG, "staged assets: $names")
+        names.firstOrNull()?.let { name ->
+            val out = File(ctx.cacheDir, name)
+            if (!out.isFile || out.length() == 0L) {
+                Log.i(TAG, "extracting $name from assets to ${out.absolutePath}")
+                ctx.assets.open("models/$name").use { input ->
+                    out.outputStream().use { input.copyTo(it, DEFAULT_BUFFER_SIZE * 8) }
+                }
+            }
+            out.takeIf { it.isFile && it.length() > 0 }
+        }
+    } catch (t: Throwable) {
+        Log.w(TAG, "no staged model in the test APK", t)
+        null
+    }
+
+    /**
+     * Fallback: a GGUF placed by hand in the app's external files directory.
+     *
+     * Note that `connectedAndroidTest` uninstalls the test package when it finishes,
+     * which removes this directory, so a model pushed before the run is usually gone
+     * by the time the next one starts. The asset path above is the reliable one; this
+     * exists for someone iterating with `am instrument` directly.
+     */
+    private fun pushedModel(ctx: android.content.Context): File? {
+        val dir = File(ctx.getExternalFilesDir(null), "models")
+        return CANDIDATES.asSequence()
             .map { File(dir, it) }
             .firstOrNull { it.isFile && it.length() > 0 }
-            ?: dir.listFiles { f -> f.extension == "gguf" && f.length() > 0 }?.firstOrNull()
-
-        Log.i(TAG, "model dir=$dir exists=${dir.exists()} chosen=$modelFile")
-        controller = EngineController()
+            ?: dir.listFiles(java.io.FileFilter { f ->
+                f.isFile && f.extension == "gguf" && f.length() > 0
+            })?.firstOrNull()
     }
 
     @After
@@ -150,8 +187,8 @@ class EngineInstrumentedTest {
         Log.i(TAG, "rendered template:\n$rendered")
         assertTrue("template produced nothing", rendered.isNotBlank())
         // Whatever the template dialect, the content has to survive into the prompt.
-        assertContains(rendered, "MARKER_USER_TURN")
-        assertContains(rendered, "You are terse.")
+        assertTrue("user turn missing from the rendered prompt", "MARKER_USER_TURN" in rendered)
+        assertTrue("system turn missing from the rendered prompt", "You are terse." in rendered)
     }
 
     @Test
@@ -232,7 +269,8 @@ class EngineInstrumentedTest {
     private fun requireModel(): File {
         val f = modelFile
         assumeTrue(
-            "no .gguf in the device models dir -- run ./scripts/fetch-model.sh --tiny",
+            "no GGUF available -- run ./scripts/fetch-model.sh --tiny, then rebuild so " +
+                "the model is staged into the test APK",
             f != null,
         )
         assumeTrue("libtaracore_jni.so is not available", controller.isNativeAvailable)

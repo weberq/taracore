@@ -23,6 +23,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,6 +60,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private companion object {
         const val TAG = "TaraCore/UI"
         const val POLL_INTERVAL_MS = 1_000L
+
+        /**
+         * Anchors the assistant to answering rather than continuing. Without one, a
+         * base-ish instruct model handed an open question and a large token budget
+         * will happily fill the budget, and small models drift badly while doing it.
+         */
+        const val SYSTEM_PROMPT =
+            "You are a helpful assistant running on the user's phone. " +
+                "Answer directly and concisely. Stop when the question is answered."
+
+        /**
+         * 0.7 rather than 0.8, and 320 tokens rather than 512. A chat reply that
+         * needs more than 320 tokens is rare; a budget the model feels obliged to
+         * fill is not. Both are far more visible on small models, which ramble.
+         */
+        const val CHAT_TEMPERATURE = 0.7f
+        const val CHAT_MAX_TOKENS = 320
+
+        /**
+         * Below this, a model is a smoke test rather than an assistant. SmolLM2-135M
+         * sits at ~105 MB and produces confident nonsense; the Playground says so
+         * rather than letting the user conclude the app is broken.
+         */
+        const val TINY_MODEL_BYTES = 300L * 1000 * 1000
     }
 
     private val settingsStore = TaraSettings(app)
@@ -82,6 +108,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _deviceStats = MutableStateFlow(DeviceStats())
     val deviceStats: StateFlow<DeviceStats> = _deviceStats.asStateFlow()
+
+    /**
+     * The model actually resident, as a registry row -- the dashboard's ServiceStatus
+     * carries only an id, and the Playground needs the size to judge it.
+     */
+    val loadedModel: StateFlow<ModelEntity?> = combine(models, status) { list, s ->
+        list.firstOrNull { it.id == s.loadedModelId }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** True when the resident model is too small to give a sensible answer. */
+    val loadedModelIsTiny: StateFlow<Boolean> = loadedModel
+        .map { it != null && it.sizeBytes in 1 until TINY_MODEL_BYTES }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _turns = MutableStateFlow<List<ChatTurn>>(emptyList())
     val turns: StateFlow<List<ChatTurn>> = _turns.asStateFlow()
@@ -215,13 +254,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _busy.value = true
 
         generationJob = viewModelScope.launch {
-            val messages = history.map { ChatMessageParcel(it.role, it.text) }
+            val messages = buildList {
+                add(ChatMessageParcel(ChatMessageParcel.ROLE_SYSTEM, SYSTEM_PROMPT))
+                addAll(history.map { ChatMessageParcel(it.role, it.text) })
+            }
             val started = System.currentTimeMillis()
             val builder = StringBuilder()
             var tokens = 0
 
             runCatching {
-                client.chatStream(messages, ChatParams(maxTokens = 512)).collect { piece ->
+                client.chatStream(
+                    messages,
+                    ChatParams(
+                        maxTokens = CHAT_MAX_TOKENS,
+                        temperature = CHAT_TEMPERATURE,
+                    ),
+                ).collect { piece ->
                     builder.append(piece)
                     tokens++
                     val elapsed = System.currentTimeMillis() - started

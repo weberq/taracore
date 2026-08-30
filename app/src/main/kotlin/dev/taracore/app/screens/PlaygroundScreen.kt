@@ -12,7 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -49,6 +49,7 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val status by viewModel.status.collectAsStateWithLifecycle()
     val connected by viewModel.connected.collectAsStateWithLifecycle()
+    val tinyModel by viewModel.loadedModelIsTiny.collectAsStateWithLifecycle()
 
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
@@ -73,6 +74,33 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
             }
             if (turns.isNotEmpty()) {
                 TextButton(onClick = viewModel::clearChat) { Text("Clear") }
+            }
+        }
+
+        if (tinyModel) {
+            // The user is otherwise left to conclude the app is broken, when what
+            // they have loaded is a model small enough to be a build artefact.
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        "This model is a smoke test, not an assistant",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        "It has too few parameters to stay on topic, and it will " +
+                            "invent facts confidently. Download a 0.5B model or larger " +
+                            "on the Models tab for answers worth reading.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
             }
         }
 
@@ -118,7 +146,7 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
                 // One button, two jobs: sending and stopping are never both available,
                 // and a Stop that is a long reach from Send is a Stop you do not press.
                 Icon(
-                    imageVector = if (busy) Icons.Default.Stop else Icons.Default.Send,
+                    imageVector = if (busy) Icons.Default.Stop else Icons.AutoMirrored.Filled.Send,
                     contentDescription = if (busy) "Stop generating" else "Send",
                 )
             }

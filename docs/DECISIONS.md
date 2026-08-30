@@ -115,10 +115,10 @@ is always visible.
 There is, however, one piece of deliberately unfinished *data*, recorded here so it is
 not mistaken for an oversight.
 
-Eighteen of the nineteen catalog entries carry `"sha256": ""`. The nineteenth,
-`smollm2-135m-instruct-q4km`, has a real digest because it is the model
-`scripts/fetch-model.sh --tiny` downloads and the instrumented tests run against, so
-it was actually fetched and hashed during development. The digests are not invented, because a
+Sixteen of the nineteen catalog entries carry `"sha256": ""`. Three have real
+digests — `smollm2-135m-instruct-q4km`, `qwen2.5-0.5b-instruct-q4km` and
+`qwen2.5-1.5b-instruct-q4km` — because those were actually downloaded, hashed and run
+on a device during development. Their `size_bytes` are exact for the same reason. The digests are not invented, because a
 fabricated digest is strictly worse than no digest: it would fail verification on a
 correct download and send users hunting a corruption that never happened.
 `ModelDownloadWorker` treats an empty digest as "cannot verify", downloads anyway, and
@@ -196,7 +196,36 @@ containing six nodes and no text.
 Renamed apart so the collision cannot recur. Worth knowing about generally: it is one
 of the few ways to get a Compose screen that renders nothing without any diagnostic.
 
-## D19 — JDK selection stays out of the repository
+## D19 — the Playground sends a system prompt, and warns about toy models
+
+Two changes prompted by the first real conversation on device, which drifted badly
+and read as a broken app.
+
+The engine was not at fault, and this was checked rather than assumed: the same
+messages with the same seed produce byte-identical output whether the prompt is fully
+re-decoded (13 of 13 tokens) or served almost entirely from the KV cache (1 token),
+and the cache correctly invalidates when a different conversation is interleaved. The
+prefix-reuse path in D6 is sound.
+
+What was at fault was everything around it:
+
+- **No system prompt.** An instruct model handed an open question with no framing and
+  a 512-token budget fills the budget. The Playground now sends a short system turn
+  telling the assistant to answer directly and stop.
+- **Sampling defaults tuned for nothing in particular.** Temperature 0.8 and 512
+  tokens became 0.7 and 320. A chat reply needing more than 320 tokens is rare; a
+  budget the model feels obliged to fill is not.
+- **No signal that the loaded model was a smoke test.** SmolLM2-135M is in the catalog
+  so that CI has something to load, and its own catalog entry says "too small to be
+  useful". Nothing conveyed that in the UI, so the reasonable conclusion from its
+  output was that Tara Core was broken. The Playground now shows a warning for any
+  resident model under 300 MB and points at the Models tab.
+
+The last point generalises: a shared engine will be judged on the output of whatever
+model happens to be loaded, so the UI has to be honest about which of those two is
+responsible.
+
+## D20 — JDK selection stays out of the repository
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

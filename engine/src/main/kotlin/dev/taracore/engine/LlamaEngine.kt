@@ -59,6 +59,7 @@ internal object LlamaEngine {
         repeatLastN: Int,
         seed: Long,
         stop: Array<String>,
+        grammar: String?,
         listener: TokenListener?,
     ): GenStats
 

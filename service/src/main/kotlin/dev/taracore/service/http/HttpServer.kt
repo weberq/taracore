@@ -67,8 +67,11 @@ class HttpServer(
     interface Bridge {
         suspend fun listModels(): List<ModelInfo>
         fun status(): ServiceStatus
-        /** @return null on success, or (errorCode, message). */
-        suspend fun ensureLoaded(modelId: String?): Pair<Int, String>?
+        /**
+         * @param allowAutoLoad null defers to the global setting.
+         * @return null on success, or (errorCode, message).
+         */
+        suspend fun ensureLoaded(modelId: String?, allowAutoLoad: Boolean?): Pair<Int, String>?
         fun newRequestId(): String
         fun stream(
             requestId: String,
@@ -180,7 +183,15 @@ class HttpServer(
             return
         }
 
-        bridge.ensureLoaded(request.model)?.let { (code, message) ->
+        val grammar = try {
+            GrammarFactory.from(request.responseFormat, request.grammar)
+        } catch (e: GrammarFactory.InvalidResponseFormat) {
+            call.respondError(HttpStatusCode.BadRequest, e.message ?: "invalid response_format",
+                "invalid_request_error", param = "response_format")
+            return
+        }
+
+        bridge.ensureLoaded(request.model, request.allowAutoLoad)?.let { (code, message) ->
             call.respondLoadFailure(code, message)
             return
         }
@@ -197,6 +208,7 @@ class HttpServer(
             topK = request.topK ?: 40,
             seed = request.seed ?: -1L,
             stop = request.stopStrings(),
+            grammar = grammar,
         )
 
         if (request.stream) {
@@ -356,7 +368,15 @@ class HttpServer(
             return
         }
 
-        bridge.ensureLoaded(request.model)?.let { (code, message) ->
+        val grammar = try {
+            GrammarFactory.from(request.responseFormat, request.grammar)
+        } catch (e: GrammarFactory.InvalidResponseFormat) {
+            call.respondError(HttpStatusCode.BadRequest, e.message ?: "invalid response_format",
+                "invalid_request_error", param = "response_format")
+            return
+        }
+
+        bridge.ensureLoaded(request.model, request.allowAutoLoad)?.let { (code, message) ->
             call.respondLoadFailure(code, message)
             return
         }
@@ -370,6 +390,7 @@ class HttpServer(
             topK = request.topK ?: 40,
             seed = request.seed ?: -1L,
             stop = request.stopStrings(),
+            grammar = grammar,
         )
 
         val created = System.currentTimeMillis() / 1000
@@ -525,6 +546,10 @@ class HttpServer(
         val status = when (code) {
             TaraCoreErrors.MODEL_NOT_FOUND, TaraCoreErrors.NO_MODEL_LOADED ->
                 HttpStatusCode.NotFound
+            // The model exists and could be loaded, but the caller said not to. 409
+            // rather than 404 so a client can tell "you asked me not to swap" from
+            // "no such model" and retry with allow_auto_load true if it wants to wait.
+            TaraCoreErrors.MODEL_NOT_LOADED -> HttpStatusCode.Conflict
             TaraCoreErrors.OUT_OF_MEMORY -> HttpStatusCode.ServiceUnavailable
             else -> HttpStatusCode.InternalServerError
         }

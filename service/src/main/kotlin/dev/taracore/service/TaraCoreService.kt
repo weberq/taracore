@@ -123,6 +123,9 @@ class TaraCoreService : Service() {
         queue.start()
 
         scope.launch {
+            // Before anything reads settings: drop the orphaned Preferences file the
+            // migration left behind, which still holds a superseded HTTP token.
+            settings.purgeLegacyPreferences()
             repository.sync()
             settings.ensureToken()
         }
@@ -357,7 +360,34 @@ class TaraCoreService : Service() {
     private suspend fun ensureModelLoaded(
         modelId: String?,
         progress: IModelCallback?,
+        allowAutoLoad: Boolean = true,
     ): Pair<Int, String>? {
+        // A named model that is already resident is the fast path, and it must be
+        // checked before the auto-load decision: "use qwen, do not swap" is a
+        // perfectly reasonable request when qwen is the model already loaded.
+        if (modelId != null && engine.loadedModelId == modelId && engine.isLoaded()) return null
+
+        // The caller named a model, it is not the resident one, and it said not to
+        // swap. Answering from whatever happens to be loaded would silently return
+        // the wrong model's opinion, so refuse instead -- immediately, because the
+        // whole point of the flag is to avoid a caller blocking for a minute or two.
+        if (!allowAutoLoad && modelId != null) {
+            // Existence is checked first so that a name that is simply wrong always
+            // reports MODEL_NOT_FOUND. Reporting "not loaded" for a typo would send
+            // the client off to retry with auto-load enabled, wait for nothing, and
+            // only then discover the real problem.
+            val known = repository.byId(modelId)
+            if (known?.path == null) {
+                return TaraCoreErrors.MODEL_NOT_FOUND to
+                    if (known == null) "unknown model: $modelId"
+                    else "model $modelId is not downloaded"
+            }
+            val resident = engine.loadedModelId
+            return TaraCoreErrors.MODEL_NOT_LOADED to
+                "model $modelId is not loaded and allow_auto_load is false" +
+                (resident?.let { " (currently loaded: $it)" } ?: " (no model is loaded)")
+        }
+
         val wanted = modelId
             ?: engine.loadedModelId
             ?: currentSettings.activeModelId
@@ -366,6 +396,13 @@ class TaraCoreService : Service() {
                 "no model is loaded and none is downloaded"
 
         if (engine.loadedModelId == wanted && engine.isLoaded()) return null
+
+        // Nothing is resident and the caller declined a load. There is no model to
+        // answer from at all, so this is a different failure from the one above.
+        if (!allowAutoLoad) {
+            return TaraCoreErrors.MODEL_NOT_LOADED to
+                "no model is loaded and allow_auto_load is false"
+        }
 
         val entity = repository.byId(wanted)
             ?: return TaraCoreErrors.MODEL_NOT_FOUND to "unknown model: $wanted"
@@ -415,6 +452,7 @@ class TaraCoreService : Service() {
                 repeatPenalty = req.repeatPenalty,
                 seed = req.seed,
                 stop = req.stop,
+                grammar = req.grammar,
             ),
             rawPrompt = rawPrompt,
         )
@@ -574,8 +612,9 @@ class TaraCoreService : Service() {
                 enterForeground()
 
                 ensureModelLoaded(
-                    if (request.allowAutoLoad) request.modelId else null,
+                    request.modelId,
                     null,
+                    allowAutoLoad = request.allowAutoLoad && currentSettings.autoLoadOnRequest,
                 )?.let { (code, message) ->
                     return@runBlocking GenerationResult.error(requestId, code, message)
                 }
@@ -672,8 +711,9 @@ class TaraCoreService : Service() {
                 idle.touch()
 
                 ensureModelLoaded(
-                    if (req.allowAutoLoad) req.modelId else null,
+                    req.modelId,
                     null,
+                    allowAutoLoad = req.allowAutoLoad && currentSettings.autoLoadOnRequest,
                 )?.let { (code, message) ->
                     streamCallbacks.remove(requestId)
                     requestOwners.remove(requestId)
@@ -733,13 +773,16 @@ class TaraCoreService : Service() {
 
         override fun status(): ServiceStatus = buildStatus()
 
-        override suspend fun ensureLoaded(modelId: String?): Pair<Int, String>? {
+        override suspend fun ensureLoaded(
+            modelId: String?,
+            allowAutoLoad: Boolean?,
+        ): Pair<Int, String>? {
             enterForeground()
             idle.touch()
-            return ensureModelLoaded(
-                if (currentSettings.autoLoadOnRequest) modelId else null,
-                null,
-            )
+            // Per-request wins; null defers to the global setting, so nothing changes
+            // for callers that do not send the field.
+            val effective = allowAutoLoad ?: currentSettings.autoLoadOnRequest
+            return ensureModelLoaded(modelId, null, allowAutoLoad = effective)
         }
 
         override fun newRequestId(): String = UUID.randomUUID().toString()

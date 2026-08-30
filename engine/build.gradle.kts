@@ -109,9 +109,20 @@ android {
  * empty, and every model-dependent test skips itself rather than failing.
  */
 val stageTestModel by tasks.registering(Copy::class) {
-    description = "Stages a downloaded GGUF into the androidTest assets."
-    val source = rootProject.layout.buildDirectory.dir("models")
-    from(source) { include("*.gguf") }
+    description = "Stages one downloaded GGUF into the androidTest assets."
+
+    // Exactly one model, the smallest available. Staging every GGUF in build/models
+    // produced a 1.5 GB test APK that took minutes to package and install, for tests
+    // that only ever load one. Smallest wins because these tests check engine
+    // behaviour, not answer quality.
+    val modelsDir = rootProject.layout.buildDirectory.dir("models")
+    val chosen = modelsDir.map { dir ->
+        dir.asFile.listFiles { f -> f.isFile && f.extension == "gguf" }
+            ?.minByOrNull { it.length() }
+            ?.let { listOf(it) }
+            ?: emptyList()
+    }
+    from(chosen)
     into(layout.buildDirectory.dir("generated/androidTestAssets/models"))
 }
 
@@ -124,6 +135,10 @@ tasks.matching { it.name.startsWith("merge") && it.name.contains("AndroidTestAss
 dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
+    // Test-only: the grammar tests build their GBNF with the same Gbnf helper that
+    // clients use. Deliberately not a production dependency -- :engine must not
+    // depend on :api, and nothing in the shipped AAR references it.
+    androidTestImplementation(project(":api"))
     androidTestImplementation(libs.androidx.test.junit)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.kotlinx.coroutines.test)

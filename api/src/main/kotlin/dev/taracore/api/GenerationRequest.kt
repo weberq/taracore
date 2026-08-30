@@ -42,6 +42,15 @@ data class GenerationRequest(
      * as well as globally in Settings.
      */
     @JvmField val allowAutoLoad: Boolean = true,
+    /**
+     * GBNF grammar constraining the output. Null means unconstrained.
+     *
+     * Added in API version 2. A version-1 service ignores it, so a client that needs
+     * the constraint honoured must check [ITaraCore.getApiVersion] first rather than
+     * assume: unconstrained output looks like a model that disobeyed, not like a
+     * feature that was silently dropped.
+     */
+    @JvmField val grammar: String? = null,
 ) : Parcelable {
 
     constructor(source: Parcel) : this(
@@ -58,6 +67,10 @@ data class GenerationRequest(
         seed = source.readLong(),
         largePrompt = source.readPfd(),
         allowAutoLoad = source.readInt() != 0,
+        // Appended in API v2. An older client writes a shorter parcel, so read this
+        // only if there are bytes left -- reading past the end would corrupt the
+        // parcel rather than fail cleanly.
+        grammar = if (source.dataAvail() > 0) source.readString() else null,
     )
 
     override fun writeToParcel(dest: Parcel, flags: Int) {
@@ -72,6 +85,8 @@ data class GenerationRequest(
         dest.writeLong(seed)
         dest.writeParcelable(largePrompt, flags)
         dest.writeInt(if (allowAutoLoad) 1 else 0)
+        // New fields go here, at the end, and readers must tolerate their absence.
+        dest.writeString(grammar)
     }
 
     /** A file descriptor must be declared so Binder dups it instead of copying bytes. */

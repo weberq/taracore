@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <exception>
+#include <stdexcept>
 #include <cstring>
 #include <mutex>
 
@@ -305,6 +307,53 @@ llama_sampler *Engine::buildSampler(const GenParams &p) const {
     return chain;
 }
 
+llama_sampler *Engine::buildGrammar(const GenParams &p, std::string *error) const {
+    if (p.grammar.empty()) return nullptr;
+
+    llama_sampler *g = llama_sampler_init_grammar(vocab_, p.grammar.c_str(), "root");
+    if (g == nullptr) {
+        // Null means the GBNF failed to parse or has no `root` rule. Report it
+        // rather than silently generating unconstrained text, which would look like
+        // the constraint was honoured and quietly wasn't.
+        if (error != nullptr) {
+            *error = "invalid GBNF grammar: it failed to parse, or has no 'root' rule";
+        }
+        return nullptr;
+    }
+    LOGI("grammar-constrained decoding enabled (%zu bytes of GBNF)", p.grammar.size());
+    return g;
+}
+
+llama_token Engine::sampleToken(llama_sampler *chain, llama_sampler *grammar) {
+    const int32_t nVocab = llama_vocab_n_tokens(vocab_);
+    const float  *logits = llama_get_logits_ith(ctx_, -1);
+
+    candidates_.resize(static_cast<size_t>(nVocab));
+    for (int32_t i = 0; i < nVocab; ++i) {
+        candidates_[static_cast<size_t>(i)] = llama_token_data{i, logits[i], 0.0f};
+    }
+    llama_token_data_array cur = {
+        candidates_.data(), candidates_.size(), /*selected=*/-1, /*sorted=*/false,
+    };
+
+    // Grammar first, on the full distribution: it zeroes the tokens the grammar
+    // cannot accept. Behind top-k or top-p it would only see candidates those had
+    // already kept, and could be left with nothing legal to pick.
+    if (grammar != nullptr) llama_sampler_apply(grammar, &cur);
+    llama_sampler_apply(chain, &cur);
+
+    if (cur.selected < 0 || cur.selected >= static_cast<int64_t>(cur.size)) {
+        // No sampler selected anything. Fall back to the highest-probability
+        // candidate rather than reading past the array.
+        int64_t best = 0;
+        for (size_t i = 1; i < cur.size; ++i) {
+            if (cur.data[i].logit > cur.data[best].logit) best = static_cast<int64_t>(i);
+        }
+        cur.selected = best;
+    }
+    return cur.data[cur.selected].id;
+}
+
 int32_t Engine::reuseKvPrefix(const std::vector<llama_token> &tokens) {
     const size_t common = [&] {
         size_t i = 0;
@@ -362,8 +411,18 @@ GenStats Engine::generate(const std::string &prompt,
         return stats;
     }
 
+    std::string grammarError;
+    llama_sampler *grammar = buildGrammar(params, &grammarError);
+    if (grammar == nullptr && !params.grammar.empty()) {
+        stats.ok = false;
+        stats.error = grammarError.empty() ? "failed to build grammar" : grammarError;
+        LOGE("%s", stats.error.c_str());
+        return stats;
+    }
+
     llama_sampler *smpl = buildSampler(params);
     if (smpl == nullptr) {
+        if (grammar != nullptr) llama_sampler_free(grammar);
         stats.ok = false;
         stats.error = "failed to build sampler chain";
         return stats;
@@ -416,6 +475,7 @@ GenStats Engine::generate(const std::string &prompt,
     if (failed) {
         llama_batch_free(batch);
         llama_sampler_free(smpl);
+        if (grammar != nullptr) llama_sampler_free(grammar);
         // The KV cache now holds an unknown partial state; drop it rather than
         // letting the next request reuse a prefix that may not be there.
         llama_memory_clear(llama_get_memory(ctx_), true);
@@ -434,14 +494,21 @@ GenStats Engine::generate(const std::string &prompt,
 
     llama_pos pos = static_cast<llama_pos>(tokens.size());
 
+    // Any throw from here on must still free the batch and samplers, so the loop is
+    // wrapped and the cleanup below runs on every path.
+    try {
     for (int32_t n = 0; n < params.maxTokens && !stats.cancelled; ++n) {
         if (cancel_.load(std::memory_order_relaxed)) { stats.cancelled = true; break; }
         if (pos >= nCtx) break;  // context exhausted
 
-        const llama_token tok = llama_sampler_sample(smpl, ctx_, -1);
+        const llama_token tok = sampleToken(smpl, grammar);
         if (llama_vocab_is_eog(vocab_, tok)) break;
 
         llama_sampler_accept(smpl, tok);
+        // The grammar only ever sees tokens the model actually produced. Feeding it
+        // the prompt would throw -- it cannot match arbitrary prompt text -- which is
+        // exactly the crash this split exists to prevent.
+        if (grammar != nullptr) llama_sampler_accept(grammar, tok);
         accumulated += tokenToPiece(tok);
         stats.genTokens++;
 
@@ -495,6 +562,16 @@ GenStats Engine::generate(const std::string &prompt,
         pos++;
     }
 
+    } catch (const std::exception &ex) {
+        stats.ok = false;
+        stats.error = std::string("generation failed: ") + ex.what();
+        LOGE("%s", stats.error.c_str());
+        // The KV cache may hold a partial step; drop it so the next request cannot
+        // reuse a prefix that is not really there.
+        llama_memory_clear(llama_get_memory(ctx_), true);
+        kvTokens_.clear();
+    }
+
     // Flush whatever was held back for stop-string lookahead.
     if (!stats.stopped && accumulated.size() > emitted) {
         const size_t end = utf8SafeEnd(accumulated, accumulated.size());
@@ -505,6 +582,7 @@ GenStats Engine::generate(const std::string &prompt,
 
     llama_batch_free(batch);
     llama_sampler_free(smpl);
+    if (grammar != nullptr) llama_sampler_free(grammar);
 
     LOGI("generate done: prompt=%d tok in %lldms, gen=%d tok in %lldms (%.1f tok/s)%s",
          stats.promptTokens, static_cast<long long>(stats.promptMs),

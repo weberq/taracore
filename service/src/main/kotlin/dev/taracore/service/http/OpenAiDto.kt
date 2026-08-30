@@ -24,6 +24,28 @@ data class ChatMessageDto(
     val name: String? = null,
 )
 
+/**
+ * How the answer must be shaped.
+ *
+ * `text` is the default and constrains nothing. The other three compile to a GBNF
+ * grammar, which makes non-conforming tokens unsamplable rather than merely
+ * discouraged -- the difference between asking a 0.5B model for a digit and
+ * guaranteeing one.
+ *
+ * `choice` is a Tara Core extension. `json_object` and `json_schema` follow the
+ * OpenAI shape, so a client that already sets `response_format` needs no changes.
+ */
+@Serializable
+data class ResponseFormat(
+    val type: String = "text",
+    /** For `type: "choice"` -- the complete set of permitted outputs. */
+    val choices: List<String>? = null,
+    /** For `type: "json_schema"` -- a JSON Schema object. */
+    val schema: JsonElement? = null,
+    /** OpenAI nests the schema under `json_schema.schema`; both are accepted. */
+    @SerialName("json_schema") val jsonSchema: JsonElement? = null,
+)
+
 @Serializable
 data class ChatCompletionRequest(
     val model: String? = null,
@@ -42,6 +64,21 @@ data class ChatCompletionRequest(
     val stream: Boolean = false,
     val n: Int? = null,
     val user: String? = null,
+    @SerialName("response_format") val responseFormat: ResponseFormat? = null,
+    /**
+     * Raw GBNF, for clients that want a constraint [ResponseFormat] cannot express.
+     * Takes precedence over `response_format` when both are set.
+     */
+    val grammar: String? = null,
+    /**
+     * Whether the service may swap models to satisfy `model`. Null defers to the
+     * global setting, which is what every existing caller gets.
+     *
+     * Set false when a slow answer is worse than no answer: loading a different
+     * model costs tens of seconds, and nothing in a pending response distinguishes
+     * that from a hung request.
+     */
+    @SerialName("allow_auto_load") val allowAutoLoad: Boolean? = null,
 ) {
     fun stopStrings(): List<String> = stop.toStringList()
     fun effectiveMaxTokens(): Int = maxCompletionTokens ?: maxTokens ?: 512
@@ -59,6 +96,9 @@ data class CompletionRequest(
     val seed: Long? = null,
     val stream: Boolean = false,
     val n: Int? = null,
+    @SerialName("response_format") val responseFormat: ResponseFormat? = null,
+    val grammar: String? = null,
+    @SerialName("allow_auto_load") val allowAutoLoad: Boolean? = null,
 ) {
     fun stopStrings(): List<String> = stop.toStringList()
 

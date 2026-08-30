@@ -17,6 +17,7 @@ import dev.taracore.api.ModelInfo
 import dev.taracore.api.ServiceStatus
 import dev.taracore.api.TaraCoreContract
 import dev.taracore.api.TaraCoreErrors
+import dev.taracore.api.Gbnf
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
@@ -387,6 +388,7 @@ class TaraCoreClient(context: Context) : AutoCloseable {
             stop = params.stop,
             seed = params.seed,
             allowAutoLoad = params.allowAutoLoad,
+            grammar = params.grammar,
         )
 
         if (base.approximateInlineBytes() <= TaraCoreContract.INLINE_PROMPT_LIMIT_BYTES) {
@@ -415,7 +417,7 @@ class TaraCoreClient(context: Context) : AutoCloseable {
 
 /** Sampling and routing knobs for one request. */
 data class ChatParams(
-    /** null uses whatever is loaded. */
+    /** null uses whatever is loaded, and never triggers a model swap. */
     val modelId: String? = null,
     val maxTokens: Int = 512,
     val temperature: Float = 0.8f,
@@ -425,9 +427,58 @@ data class ChatParams(
     val stop: List<String> = emptyList(),
     /** Negative means "choose randomly". */
     val seed: Long = -1L,
-    /** Let the service swap models if [modelId] is not the resident one. */
+    /**
+     * Let the service swap models when [modelId] is not the resident one.
+     *
+     * Set false when a slow answer is worse than no answer: a swap reads gigabytes
+     * from storage and takes tens of seconds, and the call simply blocks for all of
+     * it. With this false and the model not resident, the request fails immediately
+     * with [TaraCoreErrors.MODEL_NOT_LOADED].
+     */
     val allowAutoLoad: Boolean = true,
+    /**
+     * Constrains what the model may emit. Null leaves it unconstrained.
+     *
+     * Build one with [Constraint] rather than by hand. Requires a service reporting
+     * API version 2 or higher; an older one ignores it silently, so check
+     * [TaraCoreClient.apiVersion] if the constraint is load-bearing.
+     */
+    val grammar: String? = null,
 )
+
+/**
+ * Ready-made output constraints.
+ *
+ * These exist because "answer with just the digit" is a request a small model cannot
+ * reliably honour, however firmly it is phrased. A constraint makes the other tokens
+ * unsamplable, which turns an unreliable 0.5B classifier into a reliable one.
+ *
+ * ```kotlin
+ * val category = client.chat(
+ *     messages = listOf(ChatMessageParcel("user", "Merchant: Swiggy Instamart\nCategory:")),
+ *     params = ChatParams(grammar = Constraint.oneOf("1", "2", "3", "4", "5", "6")),
+ * )
+ * // category is exactly one of those six strings. No parsing, no retry.
+ * ```
+ */
+object Constraint {
+
+    /** The answer must be exactly one of [options]. */
+    @JvmStatic
+    fun oneOf(vararg options: String): String = Gbnf.choice(options.toList())
+
+    /** The answer must be exactly one of [options]. */
+    @JvmStatic
+    fun oneOf(options: List<String>): String = Gbnf.choice(options)
+
+    /** The answer must be a well-formed JSON object. */
+    @JvmStatic
+    fun json(): String = Gbnf.jsonObject()
+
+    /** Raw GBNF, for anything the helpers above cannot express. */
+    @JvmStatic
+    fun gbnf(grammar: String): String = grammar
+}
 
 /** Emission of [TaraCoreClient.chatStreamDetailed]. */
 sealed interface StreamEvent {

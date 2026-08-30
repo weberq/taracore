@@ -4,7 +4,9 @@
 
 #include <android/log.h>
 
+#include <exception>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -191,7 +193,8 @@ Java_dev_taracore_engine_LlamaEngine_nativeGenerate(JNIEnv *env, jobject, jlong 
                                                     jfloat temperature, jfloat topP,
                                                     jint topK, jfloat repeatPenalty,
                                                     jint repeatLastN, jlong seed,
-                                                    jobjectArray stop, jobject listener) {
+                                                    jobjectArray stop, jstring grammar,
+                                                    jobject listener) {
     auto *e = asEngine(handle);
     taracore::GenStats stats;
 
@@ -208,6 +211,7 @@ Java_dev_taracore_engine_LlamaEngine_nativeGenerate(JNIEnv *env, jobject, jlong 
         p.repeatLastN   = repeatLastN;
         p.seed          = static_cast<uint32_t>(seed);
         p.stop          = toStdStrings(env, stop);
+        p.grammar       = toStdString(env, grammar);
 
         // The sink runs on this same thread -- Engine::generate is synchronous and
         // never spawns a callback thread -- so `env` stays valid and no
@@ -226,7 +230,22 @@ Java_dev_taracore_engine_LlamaEngine_nativeGenerate(JNIEnv *env, jobject, jlong 
             return keepGoing == JNI_TRUE;
         };
 
-        stats = e->generate(toStdString(env, prompt), p, sink);
+        // llama.cpp throws on several recoverable conditions -- a grammar that
+        // rejects a token is one. This is a shared service: an uncaught exception
+        // here aborts the :engine process and takes down inference for every app on
+        // the device, because of one malformed request from one client. Never let
+        // that happen; turn it into a failed request instead.
+        try {
+            stats = e->generate(toStdString(env, prompt), p, sink);
+        } catch (const std::exception &ex) {
+            stats.ok = false;
+            stats.error = std::string("engine exception: ") + ex.what();
+            LOGE("generate threw: %s", ex.what());
+        } catch (...) {
+            stats.ok = false;
+            stats.error = "engine threw a non-standard exception";
+            LOGE("generate threw a non-standard exception");
+        }
     }
 
     // NOTE: the engine mutex is released by the time we get here, so the Kotlin

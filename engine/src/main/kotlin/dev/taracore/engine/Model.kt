@@ -39,6 +39,13 @@ data class GenParams(
     val repeatLastN: Int = 64,
     val seed: Long = -1L,
     val stop: List<String> = emptyList(),
+    /**
+     * GBNF grammar constraining the output. Null or blank means unconstrained.
+     *
+     * Build one with `dev.taracore.api.Gbnf` rather than by hand; the escaping
+     * rules are easy to get subtly wrong and a malformed grammar fails the request.
+     */
+    val grammar: String? = null,
 )
 
 /**

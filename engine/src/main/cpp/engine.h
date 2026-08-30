@@ -35,6 +35,15 @@ struct GenParams {
     int32_t                  repeatLastN   = 64;
     uint32_t                 seed          = LLAMA_DEFAULT_SEED;
     std::vector<std::string> stop;
+
+    /**
+     * GBNF grammar constraining what may be emitted. Empty means unconstrained.
+     *
+     * The point of this is small models: a 0.5B can classify perfectly well but
+     * cannot reliably be *told* to answer in a fixed alphabet. A grammar makes the
+     * invalid tokens unsamplable, so it stops being a matter of persuasion.
+     */
+    std::string              grammar;
 };
 
 struct GenStats {
@@ -99,7 +108,26 @@ public:
 private:
     std::vector<llama_token> tokenize(const std::string &text, bool addSpecial) const;
     std::string              tokenToPiece(llama_token tok) const;
+    /**
+     * The sampling chain, *excluding* any grammar.
+     *
+     * The grammar is deliberately kept out: prompt tokens are fed to this chain so
+     * repeat penalties see the whole context, and a grammar handed prompt text
+     * throws (it cannot match it). See buildGrammar and sampleToken.
+     */
     llama_sampler           *buildSampler(const GenParams &params) const;
+
+    /** The grammar sampler, or null when unconstrained. @param error set on failure. */
+    llama_sampler           *buildGrammar(const GenParams &params, std::string *error) const;
+
+    /**
+     * One sampling step: grammar mask first (it must see the full distribution),
+     * then the chain. Mirrors what llama.cpp's own common_sampler does.
+     */
+    llama_token              sampleToken(llama_sampler *chain, llama_sampler *grammar);
+
+    /** Scratch buffer for sampleToken, sized once at load to avoid a per-token alloc. */
+    std::vector<llama_token_data> candidates_;
 
     /**
      * Keep the longest common prefix of `tokens` and the previous prompt in the KV

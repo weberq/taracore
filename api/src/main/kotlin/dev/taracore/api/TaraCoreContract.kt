@@ -21,11 +21,18 @@ object TaraCoreContract {
     const val PERMISSION = "dev.taracore.permission.BIND_INFERENCE"
 
     /**
-     * Contract version implemented by this build of `:api`. Compare against
-     * [ITaraCore.getApiVersion] to find out what the *service* supports, which may be
-     * older or newer than the client's copy.
+     * Contract version implemented by this build of `:api`.
+     *
+     * Compare against [ITaraCore.getApiVersion] to find out what the *service*
+     * supports, which may be older or newer than the client's copy.
+     *
+     * - **1** — the original contract.
+     * - **2** — adds [GenerationRequest.grammar] for constrained decoding. A v1
+     *   service ignores the field, so a client that depends on the constraint must
+     *   check the version rather than assume: unconstrained output is
+     *   indistinguishable from a model that simply disobeyed.
      */
-    const val API_VERSION = 1
+    const val API_VERSION = 2
 
     /** Prompts larger than this must travel by [GenerationRequest.largePrompt]. */
     const val INLINE_PROMPT_LIMIT_BYTES = 512 * 1024
@@ -71,6 +78,13 @@ object TaraCoreErrors {
     /** The queue is full and the request was rejected rather than queued forever. */
     const val QUEUE_FULL = 11
 
+    /**
+     * The requested model is downloaded but not resident, and the caller declined to
+     * let the service swap. Distinct from [MODEL_NOT_FOUND]: retrying with auto-load
+     * enabled would succeed, at the cost of a load taking tens of seconds.
+     */
+    const val MODEL_NOT_LOADED = 12
+
     fun name(code: Int): String = when (code) {
         NONE -> "NONE"
         NO_MODEL_LOADED -> "NO_MODEL_LOADED"
@@ -83,6 +97,7 @@ object TaraCoreErrors {
         INVALID_REQUEST -> "INVALID_REQUEST"
         ENGINE_FAILURE -> "ENGINE_FAILURE"
         QUEUE_FULL -> "QUEUE_FULL"
+        MODEL_NOT_LOADED -> "MODEL_NOT_LOADED"
         else -> "UNKNOWN"
     }
 }

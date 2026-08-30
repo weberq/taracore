@@ -225,7 +225,77 @@ The last point generalises: a shared engine will be judged on the output of what
 model happens to be loaded, so the UI has to be honest about which of those two is
 responsible.
 
-## D20 — JDK selection stays out of the repository
+## D20 — the grammar sampler is kept out of the prompt-accepting chain
+
+Constrained decoding (issue #1) crashed the `:engine` process the first time it ran
+on a device, and the reason is worth recording because the shape of the mistake
+recurs.
+
+`llama_sampler_accept` is called for every prompt token, so that repeat penalties see
+the whole context. Putting the grammar sampler in that same chain means the grammar is
+handed the prompt — which it cannot match, because a grammar describes the *answer*.
+`llama_grammar_accept_str` then throws `std::runtime_error("Unexpected empty grammar
+stack")`, nothing caught it, and `std::terminate` aborted the process.
+
+llama.cpp's own `common_sampler_accept` has an explicit `accept_grammar` flag for
+exactly this; there is no equivalent on the plain chain API. So the grammar is now a
+separate `llama_sampler`, applied to the candidate array before the chain
+(`llama_sampler_apply`) and accepting only tokens the model actually produced.
+
+Two consequences worth keeping:
+
+- The grammar **must** be applied before top-k/top-p. Behind them it would only see
+  candidates those samplers had already kept, and could be left with nothing legal.
+- **A shared service must never let a client's request abort the process.** One
+  malformed grammar took down inference for every app on the device. The JNI boundary
+  and the generation loop now both catch, turning any llama.cpp exception into a
+  failed request. Covered by an instrumented test that asserts the engine still works
+  after an invalid grammar.
+
+## D21 — `Gbnf` lives in `:api`, not `:engine`
+
+Clients build grammars to put in `GenerationRequest.grammar`, so the builder has to be
+on a module they already depend on. Putting it in `:engine` and having `:client-sdk`
+depend on that would drag `libtaracore_jni.so` — several megabytes per ABI — into
+every consuming app, which is precisely what Tara Core exists to avoid. `Gbnf` is pure
+string building with no dependencies, so `:api` keeps its "depends on nothing"
+property.
+
+JSON Schema parsing stays in `:service` for the same reason: it needs a JSON library
+and `:api` must not.
+
+## D22 — `allow_auto_load` defaults to the global setting, and unknown models are 404
+
+Three states, not two: `true` swaps, `false` fails fast, **absent** defers to the
+global *Load models on demand* setting so no existing caller changes behaviour.
+
+`false` with a non-resident model returns `409`, not `404`: the distinction matters
+because a client seeing `409` knows retrying with `true` would work, at the cost of a
+load. A model that does not exist is still `404` even when auto-load is off — checked
+before the auto-load decision, because reporting "not loaded" for a typo would send
+the client off to wait for a load that was never going to happen.
+
+Omitting `model` entirely means "whatever is resident" and never triggers a swap.
+That is the setting a background caller actually wants, and it removes the race in
+reading `/health` and echoing back what it reported.
+
+## D23 — the orphaned Preferences file is deleted, not migrated
+
+The move to `MultiProcessDataStoreFactory` (D10) left
+`filesDir/datastore/taracore_settings.preferences_pb` behind, still holding an HTTP
+bearer token.
+
+Deleted rather than migrated, on purpose. The token must be regenerated rather than
+resurrected — carrying a superseded credential forward is the opposite of the point.
+The remaining values had already diverged from the live ones on every device
+inspected, because for a while the two stores were written by different processes.
+And the file is an active trap: it is the first thing anyone inspecting the app finds,
+its token returns `401`, and the obvious conclusion is that auth is broken.
+
+If a future build ever needs values carried across a store change, migrate *then*
+delete; there was nothing here worth keeping.
+
+## D24 — JDK selection stays out of the repository
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

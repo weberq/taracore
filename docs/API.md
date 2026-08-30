@@ -150,7 +150,12 @@ OpenAI `list` envelope over the downloaded models.
 ### `POST /v1/chat/completions`
 
 Standard OpenAI request. Supported fields: `model`, `messages`, `max_tokens`,
-`temperature`, `top_p`, `stop`, `seed`, `stream`.
+`temperature`, `top_p`, `stop`, `seed`, `stream`, plus the two Tara Core additions
+below: `response_format` and `allow_auto_load`.
+
+Omitting `model` means **"whatever is loaded"**, and never triggers a swap. Prefer it
+when you genuinely do not mind which model answers — naming one is how callers
+trigger a multi-second load by accident.
 
 `stream: false` returns a `chat.completion` with a `usage` block.
 `stream: true` returns `text/event-stream` of `chat.completion.chunk` objects
@@ -163,7 +168,91 @@ returns `404`.
 ### `POST /v1/completions`
 
 The older prompt-based shape, for clients that never moved to chat. The prompt is
-used verbatim — no chat template.
+used verbatim — no chat template. Supports `response_format` and `allow_auto_load`
+too.
+
+---
+
+## Constrained output
+
+Small models classify perfectly well but cannot reliably be *told* to answer in a
+fixed alphabet. Asking a 0.5B for "just the category" gets you a paragraph about
+merchants. `response_format` compiles to a GBNF grammar and makes every other token
+**unsamplable**, so it stops being a matter of persuasion.
+
+### `{"type": "choice", "choices": [...]}`
+
+The cheapest and most useful constraint. The answer is exactly one of the strings,
+with nothing before or after it:
+
+```json
+{
+  "messages": [{"role": "user", "content": "Which category? Options: Food, Transport, Entertainment.\nMerchant: Uber\nAnswer with one option only."}],
+  "response_format": {"type": "choice", "choices": ["Food", "Transport", "Entertainment"]}
+}
+```
+→ `"Transport"`. No parsing, no retry, no regex.
+
+### `{"type": "json_object"}`
+
+Any well-formed JSON object.
+
+### `{"type": "json_schema", "schema": {...}}`
+
+Supports `type` (object/array/string/number/integer/boolean/null), `properties`,
+`required`, `items`, `enum` and `const`. The nested OpenAI form
+(`response_format.json_schema.schema`) is accepted too. Keywords it does not
+understand are ignored rather than rejected — a slightly loose constraint beats a
+failed request.
+
+```json
+{"response_format": {"type": "json_schema", "schema": {
+  "type": "object",
+  "properties": {"category": {"enum": ["Food","Transport"]}, "confidence": {"type": "number"}},
+  "required": ["category", "confidence"]}}}
+```
+→ `{ "category": "Transport", "confidence": 0.98 }`, valid every time.
+
+### `grammar`
+
+Raw GBNF, for anything the above cannot express. Takes precedence over
+`response_format`. A grammar that fails to parse or has no `root` rule returns `400`
+rather than quietly generating unconstrained text.
+
+### Choosing your alphabet
+
+Measured on a Pixel 9a, this matters more than the feature itself:
+
+- **Constrain to meaningful words, not indices.** Given `["1".."6"]` for six
+  categories, a 0.5B answered `1` for everything: it has no probability mass over
+  bare digits as category labels. Given the category *words*, the same model and
+  prompt got Uber→Transport and Netflix→Entertainment right.
+- **Do not end the prompt with `Category:`.** A trailing label makes the first
+  constrained token nearly arbitrary. "Answer with one option only." works far better.
+- **A schema helps the model as well as you.** `json_schema` was the most accurate
+  form tested, because emitting `{"category": "` puts the model in a frame it knows.
+
+---
+
+## Avoiding an accidental model swap
+
+Loading a different model reads gigabytes from storage. `allow_auto_load` lets a
+request say it would rather fail than wait:
+
+```json
+{"model": "qwen2.5-1.5b-instruct-q4km", "allow_auto_load": false, "messages": [...]}
+```
+
+| Situation | Result |
+|---|---|
+| Model is resident | `200`, answered normally |
+| Model is downloaded but not resident | `409` immediately (measured: 0.08 s, versus 28–123 s for a swap) |
+| Model is unknown or not downloaded | `404` immediately |
+| Field omitted | Falls back to the global **Load models on demand** setting |
+
+Omitting `model` entirely is the other half of this: it means "whatever is loaded",
+so a client that does not care can never trigger a swap. The response's `model` field
+always names the model that actually answered.
 
 ### Verifying with the unmodified OpenAI Python client
 

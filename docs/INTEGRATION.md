@@ -93,6 +93,48 @@ When the user navigates away, the collector is cancelled, the SDK calls `cancel(
 the service, and generation stops within one token. Nothing keeps running in the
 background burning battery on an answer nobody will read.
 
+### Constraining the answer
+
+```kotlin
+import dev.taracore.client.Constraint
+
+// Exactly one of these six strings comes back. No parsing, no retry.
+val category = client.chat(
+    messages = listOf(ChatMessageParcel("user",
+        "Which category? Options: Food, Transport, Entertainment, Bills, Shopping, Other.\n" +
+        "Merchant: Uber\nAnswer with one option only.")),
+    params = ChatParams(grammar = Constraint.oneOf(
+        "Food", "Transport", "Entertainment", "Bills", "Shopping", "Other")),
+)
+
+// Or a JSON object, guaranteed well-formed.
+val json = client.chat(messages, ChatParams(grammar = Constraint.json()))
+```
+
+Constrain to **meaningful words rather than indices**: a small model has no
+probability mass over bare digits as category labels and will answer `1` to
+everything, but it has real opinions about the words. See docs/API.md.
+
+Requires a service reporting API version 2 or higher. An older one ignores the field,
+and unconstrained output is indistinguishable from a model that disobeyed, so check
+first when the constraint is load-bearing:
+
+```kotlin
+if (client.apiVersion() >= 2) { /* grammar is honoured */ }
+```
+
+### Not waiting for a model swap
+
+```kotlin
+// Fail fast rather than block for tens of seconds on a model load.
+client.chat(messages, ChatParams(modelId = "qwen2.5-1.5b-instruct-q4km",
+                                 allowAutoLoad = false))
+// throws InferenceException(TaraCoreErrors.MODEL_NOT_LOADED) immediately
+
+// Or simply do not care which model answers -- this never triggers a load:
+client.chat(messages, ChatParams(modelId = null))
+```
+
 ### Errors worth handling
 
 | Exception | Means |
@@ -101,6 +143,7 @@ background burning battery on an answer nobody will read.
 | `SecurityException` | Your manifest is missing `BIND_INFERENCE`. |
 | `ServiceDisconnectedException` | The service died mid-call. Reconnect and retry. |
 | `InferenceException` | The engine failed. `code` is a `TaraCoreErrors` constant. |
+| `InferenceException` with `MODEL_NOT_LOADED` | You passed `allowAutoLoad = false` and the model was not resident. Retry with it true if you can afford the load. |
 
 ---
 
@@ -293,6 +336,18 @@ curl -s http://127.0.0.1:8080/health | jq .
 # What can it run?
 curl -s -H "Authorization: Bearer $TOKEN" \
      http://127.0.0.1:8080/v1/models | jq '.data[].id'
+
+# Constrained: the answer is exactly one of the options.
+curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+     -d '{
+           "messages": [{"role": "user", "content": "Which category? Options: Food, Transport, Entertainment.\nMerchant: Uber\nAnswer with one option only."}],
+           "response_format": {"type": "choice", "choices": ["Food", "Transport", "Entertainment"]},
+           "max_tokens": 16
+         }' \
+     http://127.0.0.1:8080/v1/chat/completions | jq -r '.choices[0].message.content'
+
+# Note there is no "model" field above: that means "whatever is loaded", which is
+# the only way to be sure a request will not trigger a multi-second model swap.
 
 # One completion.
 curl -s -H "Authorization: Bearer $TOKEN" \

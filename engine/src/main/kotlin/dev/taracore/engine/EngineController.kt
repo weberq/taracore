@@ -209,6 +209,7 @@ class EngineController(
                         repeatLastN = req.params.repeatLastN,
                         seed = normaliseSeed(req.params.seed),
                         stop = req.params.stop.toTypedArray(),
+                        grammar = req.params.grammar,
                         listener = listener,
                     )
                 } catch (t: Throwable) {

@@ -1,6 +1,7 @@
 package dev.taracore.service
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.MultiProcessDataStoreFactory
@@ -59,6 +60,8 @@ data class SettingsSnapshot(
 class TaraSettings(context: Context) {
 
     companion object {
+        private const val TAG = "TaraCore/Settings"
+
         const val DEFAULT_PORT = 8080
         const val DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000L
 
@@ -66,6 +69,18 @@ class TaraSettings(context: Context) {
         const val IDLE_NEVER = 0L
 
         private const val FILE_NAME = "taracore_settings.json"
+
+        /**
+         * Where the pre-multi-process build kept settings.
+         *
+         * Preferences DataStore puts its files under `filesDir/datastore/<name>.preferences_pb`.
+         * Nothing reads this any more, but it still contains an HTTP bearer token
+         * from before the migration, and a superseded credential with no owner and
+         * no expiry should not outlive the thing that replaced it. It is also an
+         * active trap: it is the first file anyone inspecting the app finds, its
+         * token returns 401, and the obvious conclusion is that auth is broken.
+         */
+        private const val LEGACY_PREFS = "datastore/taracore_settings.preferences_pb"
 
         /** Guarded so both processes share one instance rather than two watchers. */
         @Volatile
@@ -94,9 +109,35 @@ class TaraSettings(context: Context) {
         }
     }
 
+    private val appContext = context.applicationContext
+
     private val dataStore = store(context)
 
     val flow: Flow<SettingsSnapshot> = dataStore.data
+
+    /**
+     * Remove the orphaned Preferences DataStore file left by the migration.
+     *
+     * Deliberately delete rather than migrate. The values in it are not worth
+     * carrying: the token must be regenerated rather than resurrected, and on every
+     * device inspected the remaining settings had already diverged from the live
+     * ones, because the two stores were written by different processes for a while.
+     * Deleting a stale credential is the conservative choice; copying one forward is
+     * not.
+     *
+     * Idempotent, and safe to call on every start: after the first run the file is
+     * gone and this is one failed `exists()`.
+     */
+    fun purgeLegacyPreferences(): Boolean {
+        val legacy = File(appContext.filesDir, LEGACY_PREFS)
+        if (!legacy.exists()) return false
+        val deleted = legacy.delete()
+        // Remove the directory too when it is empty; leaving an empty `datastore/`
+        // behind invites the same wrong conclusion next time someone looks.
+        legacy.parentFile?.takeIf { it.isDirectory && it.list()?.isEmpty() == true }?.delete()
+        Log.i(TAG, "orphaned Preferences DataStore file removed: $deleted (${legacy.absolutePath})")
+        return deleted
+    }
 
     /**
      * Read the token, minting one on first access. Done lazily rather than at install

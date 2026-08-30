@@ -264,6 +264,117 @@ class EngineInstrumentedTest {
         )
     }
 
+    @Test
+    fun grammarConstrainsOutputToTheGivenAlphabet() = runBlocking {
+        val file = requireModel()
+        val load = withTimeout(120_000) { controller.load(specFor(file)) }
+        assertTrue("load failed: ${load.error}", load.ok)
+
+        val allowed = listOf("red", "green", "blue")
+        val events = withTimeout(180_000) {
+            controller.stream(
+                GenRequest(
+                    requestId = "grammar-choice",
+                    messages = listOf(
+                        ChatMessage(ChatMessage.ROLE_USER, "Name a colour of the sky."),
+                    ),
+                    params = GenParams(
+                        maxTokens = 16,
+                        seed = 3L,
+                        grammar = dev.taracore.api.Gbnf.choice(allowed),
+                    ),
+                )
+            ).toList()
+        }
+
+        val errors = events.filterIsInstance<GenEvent.Error>()
+        assertTrue("grammar run reported errors: ${errors.map { it.message }}", errors.isEmpty())
+
+        val done = events.filterIsInstance<GenEvent.Done>().single()
+        Log.i(TAG, "grammar-constrained output: ${done.text}")
+        assertTrue(
+            "constrained output ${done.text} was not one of $allowed",
+            done.text.trim() in allowed,
+        )
+    }
+
+    @Test
+    fun grammarRunsAfterAPromptWithoutCrashingTheProcess() = runBlocking {
+        // Regression: the grammar sampler used to sit in the same chain that receives
+        // prompt tokens. A grammar cannot match arbitrary prompt text, so llama.cpp
+        // threw std::runtime_error, nothing caught it, and the whole :engine process
+        // aborted -- taking inference down for every app on the device. A long,
+        // grammar-incompatible prompt is what triggered it.
+        val file = requireModel()
+        val load = withTimeout(120_000) { controller.load(specFor(file)) }
+        assertTrue("load failed: ${load.error}", load.ok)
+
+        val events = withTimeout(180_000) {
+            controller.stream(
+                GenRequest(
+                    requestId = "grammar-after-long-prompt",
+                    messages = listOf(
+                        ChatMessage(
+                            ChatMessage.ROLE_USER,
+                            "Here is a long preamble that the grammar could never match, " +
+                                "full of words and punctuation. Now answer: yes or no?",
+                        ),
+                    ),
+                    params = GenParams(
+                        maxTokens = 8,
+                        seed = 5L,
+                        grammar = dev.taracore.api.Gbnf.choice(listOf("yes", "no")),
+                    ),
+                )
+            ).toList()
+        }
+
+        val done = events.filterIsInstance<GenEvent.Done>().singleOrNull()
+        assertNotNull("engine died or produced no result", done)
+        assertTrue("expected yes or no, got ${done!!.text}", done.text.trim() in listOf("yes", "no"))
+
+        // The engine must still be usable afterwards -- proving nothing was corrupted.
+        assertTrue("engine is no longer loaded after a grammar run", controller.isLoaded())
+    }
+
+    @Test
+    fun anInvalidGrammarFailsTheRequestRatherThanTheProcess() = runBlocking {
+        val file = requireModel()
+        val load = withTimeout(120_000) { controller.load(specFor(file)) }
+        assertTrue("load failed: ${load.error}", load.ok)
+
+        val events = withTimeout(120_000) {
+            controller.stream(
+                GenRequest(
+                    requestId = "grammar-invalid",
+                    messages = listOf(ChatMessage(ChatMessage.ROLE_USER, "Hello.")),
+                    // No `root` rule, so llama.cpp refuses to build the sampler.
+                    params = GenParams(maxTokens = 8, grammar = "notroot ::= \"x\"\n"),
+                )
+            ).toList()
+        }
+
+        val errors = events.filterIsInstance<GenEvent.Error>()
+        assertTrue("an invalid grammar should surface as an error", errors.isNotEmpty())
+        Log.i(TAG, "invalid grammar reported: ${errors.first().message}")
+
+        // And crucially the engine survived it and still works.
+        assertTrue(controller.isLoaded())
+        val after = withTimeout(120_000) {
+            controller.stream(
+                GenRequest(
+                    requestId = "grammar-invalid-recovery",
+                    messages = listOf(ChatMessage(ChatMessage.ROLE_USER, "Say hi.")),
+                    params = GenParams(maxTokens = 16),
+                )
+            ).toList()
+        }
+        assertTrue(
+            "engine unusable after an invalid grammar",
+            after.filterIsInstance<GenEvent.Done>().single().stats.genTokens > 0,
+        )
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private fun requireModel(): File {

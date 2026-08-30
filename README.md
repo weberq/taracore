@@ -129,14 +129,29 @@ Beyond that: nothing leaves the device. Tara Core makes exactly one kind of outb
 request — downloading a model you asked for. No prompt, no completion, and no
 telemetry is ever sent anywhere.
 
+## Constrained output
+
+Small models are only useful for structured tasks if their output can be *guaranteed*
+structured. `response_format` compiles to a grammar that makes every other token
+unsamplable:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Merchant: Uber. Which category? Answer with one option only."}],
+       "response_format":{"type":"choice","choices":["Food","Transport","Entertainment"]}}' \
+  http://127.0.0.1:8080/v1/chat/completions
+```
+→ `Transport`, every time. Also `json_object`, `json_schema`, and raw GBNF. From
+Kotlin it is `ChatParams(grammar = Constraint.oneOf("Food", "Transport", ...))`.
+
 ## Roadmap
 
 - **Multi-sequence batching** — several clients sharing one context through
   `n_seq_max > 1`, instead of queueing. The largest available throughput win.
 - **`/v1/embeddings`** — the pooling paths already exist in `llama.cpp`; this is
   mostly an endpoint and a context flag.
-- **Tool calling** — `tools` / `tool_choice` on the chat endpoint, with grammar-
-  constrained decoding so a model that has never seen a schema still emits valid JSON.
+- **Tool calling** — `tools` / `tool_choice` on the chat endpoint, building on the
+  constrained decoding that already landed.
 - **LoRA adapters** — `llama_adapter_lora` lets one base model serve several
   fine-tunes at a few megabytes each, rather than a full model per task.
 - **LiteRT backend** — an alternative to `llama.cpp` reaching the NPU on devices that

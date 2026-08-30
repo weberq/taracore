@@ -69,10 +69,29 @@ no system-provided UI string that makes sense. `normal` means install-time grant
 visible in app details, which matches the threat model: the danger is compute and
 battery use, not data exfiltration from Tara Core itself.
 
-## D10 — Room for the model registry, DataStore for settings
+## D10 — Room for the model registry, **multi-process** DataStore for settings
 
 The registry is relational and queried (`by id`, `by family`, `downloaded only`), so
-Room. Settings are a flat bag of scalars read as a `Flow`, so Preferences DataStore.
+Room, which is safe to open from two processes.
+
+Settings are a flat bag of scalars read as a `Flow`, which says "Preferences
+DataStore" — and that is what the first build used. It was wrong, and the failure was
+silent. **Preferences DataStore is not multi-process safe:** each process gets its own
+instance, its own in-memory cache and its own file watcher, so a write in the UI
+process is never observed in `:engine`. On device, toggling "enable the HTTP server"
+updated the UI, persisted to disk, and did nothing at all, because the service that
+owns the server never heard about it. Nothing logged an error; `curl` just got an
+empty reply.
+
+Settings now use `MultiProcessDataStoreFactory` with a JSON serializer over the whole
+`SettingsSnapshot`. It coordinates through an exclusive file lock and a shared
+counter, so a write in one process invalidates the other's cache and re-emits on its
+flow. JSON rather than protobuf because the file is tiny and being able to `cat` it
+while debugging a cross-process problem is worth more than the bytes.
+
+The general lesson, recorded because it will come up again: **the process split in D8
+is not free.** Anything the UI and the engine both touch has to be explicitly
+multi-process safe, and the failure mode is silence rather than an exception.
 
 ## D11 — Prompts over 512 KB travel by `ParcelFileDescriptor`
 
@@ -164,7 +183,20 @@ no model on disk the task copies nothing and every model-dependent test skips it
 so a CI run without weights stays green and still proves the JNI layer links and
 loads.
 
-## D18 — JDK selection stays out of the repository
+## D18 — the Application class and the root composable must not share a name
+
+`TaraCoreApplication`, not `TaraCoreApp`, and `TaraCoreRoot()`, not `TaraCoreApp()`.
+
+A class and a function may share a name in Kotlin. When they do, `TaraCoreApp()` in a
+composable body resolves to the **constructor**: it silently builds and discards an
+`Application` object, emits no UI, and produces no error anywhere. The app launched to
+a blank screen, with a clean build, no exception, no crash log, and a composition tree
+containing six nodes and no text.
+
+Renamed apart so the collision cannot recur. Worth knowing about generally: it is one
+of the few ways to get a Compose screen that renders nothing without any diagnostic.
+
+## D19 — JDK selection stays out of the repository
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

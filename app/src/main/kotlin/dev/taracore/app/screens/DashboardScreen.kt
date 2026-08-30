@@ -112,8 +112,13 @@ fun DashboardScreen(viewModel: MainViewModel) {
                 StatRow("Queue depth", status.queueDepth.toString())
                 StatRow(
                     "Idle unload in",
-                    if (status.idleUnloadInMs < 0) "disabled"
-                    else formatDuration(status.idleUnloadInMs),
+                    when {
+                        // Nothing resident means there is nothing for the timer to
+                        // drop. Saying "disabled" here reads as a broken setting.
+                        status.loadedModelId == null -> "nothing loaded"
+                        status.idleUnloadInMs < 0 -> "disabled"
+                        else -> formatDuration(status.idleUnloadInMs)
+                    },
                 )
             }
         }

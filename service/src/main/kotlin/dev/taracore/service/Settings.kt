@@ -1,25 +1,31 @@
 package dev.taracore.service
 
 import android.content.Context
+import androidx.datastore.core.CorruptionException
 import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.MultiProcessDataStoreFactory
+import androidx.datastore.core.Serializer
+import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import java.security.SecureRandom
 import java.util.Base64
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore("taracore_settings")
-
-/** Everything the user can change, as one immutable snapshot. */
+/**
+ * Everything the user can change, as one immutable snapshot.
+ *
+ * Serialized whole rather than as individual keys, because the store below writes the
+ * whole file atomically anyway and a single object is far easier to reason about
+ * across two processes than a bag of independently-versioned keys.
+ */
+@Serializable
 data class SettingsSnapshot(
     val idleTimeoutMs: Long = TaraSettings.DEFAULT_IDLE_TIMEOUT_MS,
-    val threads: Int = 0,               // 0 = derive from the CPU count
+    /** 0 = derive from the CPU count. */
+    val threads: Int = 0,
     val contextSize: Int = 4096,
     val gpuLayers: Int = 0,
     val httpEnabled: Boolean = false,
@@ -34,30 +40,48 @@ data class SettingsSnapshot(
 )
 
 /**
- * Preferences DataStore rather than Room: this is a flat bag of scalars read as a
- * Flow, with no queries and no relations. See docs/DECISIONS.md D10.
+ * Settings, shared between the UI process and the `:engine` process.
+ *
+ * ## Why not Preferences DataStore
+ *
+ * Because it is **not multi-process safe**, and the failure is silent. Each process
+ * gets its own instance with its own in-memory cache and its own file watcher; a
+ * write in the UI process is never observed in `:engine`. This was not a theoretical
+ * concern -- the first build shipped Preferences DataStore, and toggling "enable the
+ * HTTP server" in Settings updated the UI, persisted to disk, and did absolutely
+ * nothing, because the service that owns the server never heard about it. Nothing
+ * logged an error.
+ *
+ * [MultiProcessDataStoreFactory] is the supported answer: it coordinates through an
+ * exclusive file lock and a shared counter, so a write in one process invalidates the
+ * other's cache and re-emits on its flow.
  */
-class TaraSettings(private val context: Context) {
+class TaraSettings(context: Context) {
 
     companion object {
         const val DEFAULT_PORT = 8080
         const val DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000L
+
         /** Idle timeout value meaning "never unload". */
         const val IDLE_NEVER = 0L
 
-        private val IDLE_TIMEOUT = longPreferencesKey("idle_timeout_ms")
-        private val THREADS = intPreferencesKey("threads")
-        private val CONTEXT_SIZE = intPreferencesKey("context_size")
-        private val GPU_LAYERS = intPreferencesKey("gpu_layers")
-        private val HTTP_ENABLED = booleanPreferencesKey("http_enabled")
-        private val HTTP_PORT = intPreferencesKey("http_port")
-        private val HTTP_TOKEN = stringPreferencesKey("http_token")
-        private val HTTP_AUTH_REQUIRED = booleanPreferencesKey("http_auth_required")
-        private val AUTO_LOAD = booleanPreferencesKey("auto_load_on_request")
-        private val START_ON_BOOT = booleanPreferencesKey("start_on_boot")
-        private val ACTIVE_MODEL = stringPreferencesKey("active_model_id")
-        private val USE_MMAP = booleanPreferencesKey("use_mmap")
-        private val USE_MLOCK = booleanPreferencesKey("use_mlock")
+        private const val FILE_NAME = "taracore_settings.json"
+
+        /** Guarded so both processes share one instance rather than two watchers. */
+        @Volatile
+        private var instance: DataStore<SettingsSnapshot>? = null
+
+        private fun store(context: Context): DataStore<SettingsSnapshot> =
+            instance ?: synchronized(this) {
+                instance ?: MultiProcessDataStoreFactory.create(
+                    serializer = SettingsSerializer,
+                    produceFile = {
+                        // Internal storage, not the cache: settings must survive the
+                        // system reclaiming cache space.
+                        File(context.applicationContext.filesDir, FILE_NAME)
+                    },
+                ).also { instance = it }
+            }
 
         /**
          * 32 bytes from SecureRandom, base64url without padding. Long enough that
@@ -70,78 +94,84 @@ class TaraSettings(private val context: Context) {
         }
     }
 
-    val flow: Flow<SettingsSnapshot> = context.dataStore.data.map { p ->
-        SettingsSnapshot(
-            idleTimeoutMs = p[IDLE_TIMEOUT] ?: DEFAULT_IDLE_TIMEOUT_MS,
-            threads = p[THREADS] ?: 0,
-            contextSize = p[CONTEXT_SIZE] ?: 4096,
-            gpuLayers = p[GPU_LAYERS] ?: 0,
-            httpEnabled = p[HTTP_ENABLED] ?: false,
-            httpPort = p[HTTP_PORT] ?: DEFAULT_PORT,
-            httpToken = p[HTTP_TOKEN] ?: "",
-            httpAuthRequired = p[HTTP_AUTH_REQUIRED] ?: true,
-            autoLoadOnRequest = p[AUTO_LOAD] ?: true,
-            startOnBoot = p[START_ON_BOOT] ?: false,
-            activeModelId = p[ACTIVE_MODEL],
-            useMmap = p[USE_MMAP] ?: true,
-            useMlock = p[USE_MLOCK] ?: false,
-        )
-    }
+    private val dataStore = store(context)
+
+    val flow: Flow<SettingsSnapshot> = dataStore.data
 
     /**
-     * Read the token, minting one on first access. Done here rather than at install
+     * Read the token, minting one on first access. Done lazily rather than at install
      * time so the token exists the moment anything needs it, and exactly once.
      */
     suspend fun ensureToken(): String {
         var token = ""
-        context.dataStore.edit { p ->
-            val existing = p[HTTP_TOKEN]
-            if (existing.isNullOrBlank()) {
-                token = generateToken()
-                p[HTTP_TOKEN] = token
-            } else {
-                token = existing
-            }
+        dataStore.updateData { current ->
+            token = current.httpToken.ifBlank { generateToken() }
+            if (current.httpToken.isBlank()) current.copy(httpToken = token) else current
         }
         return token
     }
 
     suspend fun regenerateToken(): String {
         val token = generateToken()
-        context.dataStore.edit { it[HTTP_TOKEN] = token }
+        dataStore.updateData { it.copy(httpToken = token) }
         return token
     }
 
-    suspend fun setIdleTimeout(ms: Long) = edit { it[IDLE_TIMEOUT] = ms.coerceAtLeast(0) }
+    suspend fun setIdleTimeout(ms: Long) = update { it.copy(idleTimeoutMs = ms.coerceAtLeast(0)) }
 
-    suspend fun setThreads(n: Int) = edit { it[THREADS] = n.coerceIn(0, 16) }
+    suspend fun setThreads(n: Int) = update { it.copy(threads = n.coerceIn(0, 16)) }
 
-    suspend fun setContextSize(n: Int) = edit { it[CONTEXT_SIZE] = n.coerceIn(256, 131072) }
+    suspend fun setContextSize(n: Int) = update { it.copy(contextSize = n.coerceIn(256, 131072)) }
 
-    suspend fun setGpuLayers(n: Int) = edit { it[GPU_LAYERS] = n.coerceIn(0, 999) }
+    suspend fun setGpuLayers(n: Int) = update { it.copy(gpuLayers = n.coerceIn(0, 999)) }
 
-    suspend fun setHttpEnabled(on: Boolean) = edit { it[HTTP_ENABLED] = on }
+    suspend fun setHttpEnabled(on: Boolean) = update { it.copy(httpEnabled = on) }
 
-    suspend fun setHttpPort(port: Int) = edit {
-        // Below 1024 needs root; above 65535 does not exist.
-        it[HTTP_PORT] = port.coerceIn(1024, 65535)
+    // Below 1024 needs root; above 65535 does not exist.
+    suspend fun setHttpPort(port: Int) = update { it.copy(httpPort = port.coerceIn(1024, 65535)) }
+
+    suspend fun setHttpAuthRequired(required: Boolean) =
+        update { it.copy(httpAuthRequired = required) }
+
+    suspend fun setAutoLoad(on: Boolean) = update { it.copy(autoLoadOnRequest = on) }
+
+    suspend fun setStartOnBoot(on: Boolean) = update { it.copy(startOnBoot = on) }
+
+    suspend fun setActiveModel(id: String?) = update { it.copy(activeModelId = id) }
+
+    suspend fun setUseMmap(on: Boolean) = update { it.copy(useMmap = on) }
+
+    suspend fun setUseMlock(on: Boolean) = update { it.copy(useMlock = on) }
+
+    private suspend fun update(block: (SettingsSnapshot) -> SettingsSnapshot) {
+        dataStore.updateData(block)
+    }
+}
+
+/**
+ * JSON on disk. Chosen over protobuf because the file is tiny, read once per change,
+ * and being able to `cat` it while debugging a cross-process problem is worth more
+ * than the bytes.
+ */
+private object SettingsSerializer : Serializer<SettingsSnapshot> {
+
+    private val json = Json {
+        ignoreUnknownKeys = true   // tolerate a downgrade after a new field is added
+        encodeDefaults = true
     }
 
-    suspend fun setHttpAuthRequired(required: Boolean) = edit { it[HTTP_AUTH_REQUIRED] = required }
+    override val defaultValue = SettingsSnapshot()
 
-    suspend fun setAutoLoad(on: Boolean) = edit { it[AUTO_LOAD] = on }
-
-    suspend fun setStartOnBoot(on: Boolean) = edit { it[START_ON_BOOT] = on }
-
-    suspend fun setActiveModel(id: String?) = edit {
-        if (id == null) it.remove(ACTIVE_MODEL) else it[ACTIVE_MODEL] = id
+    override suspend fun readFrom(input: InputStream): SettingsSnapshot = try {
+        json.decodeFromString(SettingsSnapshot.serializer(), input.readBytes().decodeToString())
+    } catch (t: Throwable) {
+        // A CorruptionException lets DataStore fall back to defaults rather than
+        // wedging every read forever. Losing settings is recoverable; a service that
+        // cannot start is not.
+        throw CorruptionException("could not read $t", t)
     }
 
-    suspend fun setUseMmap(on: Boolean) = edit { it[USE_MMAP] = on }
-
-    suspend fun setUseMlock(on: Boolean) = edit { it[USE_MLOCK] = on }
-
-    private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
-        context.dataStore.edit(block)
+    override suspend fun writeTo(t: SettingsSnapshot, output: OutputStream) {
+        output.write(json.encodeToString(SettingsSnapshot.serializer(), t).encodeToByteArray())
     }
 }

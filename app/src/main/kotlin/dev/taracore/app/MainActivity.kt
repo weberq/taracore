@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background,
                 ) {
-                    TaraCoreApp()
+                    TaraCoreRoot()
                 }
             }
         }
@@ -95,7 +95,7 @@ private val DESTINATIONS = listOf(
 )
 
 @Composable
-fun TaraCoreApp(viewModel: MainViewModel = viewModel()) {
+fun TaraCoreRoot(viewModel: MainViewModel = viewModel()) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val snackbar = remember { SnackbarHostState() }

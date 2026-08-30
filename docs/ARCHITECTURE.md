@@ -69,6 +69,14 @@ lives in.
 The cost is that every UI-to-service call crosses Binder, including the once-a-second
 status poll. At one small transaction per second this is not measurable.
 
+The other cost is real and caught us: **anything the two processes share must be
+explicitly multi-process safe.** Settings were originally Preferences DataStore, which
+is not — each process gets its own instance and its own cache, so the UI's writes were
+invisible to the engine. Toggling the HTTP server did nothing, and nothing logged an
+error. Settings now use `MultiProcessDataStoreFactory`, which coordinates through a
+file lock and a shared counter. Room is safe across processes already. See
+docs/DECISIONS.md D10.
+
 ---
 
 ## Threading model

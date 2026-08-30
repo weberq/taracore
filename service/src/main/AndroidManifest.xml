@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      Foreground service, "specialUse" subtype. None of the platform FGS types
+      describes "hosts a shared inference engine for other apps on the device";
+      declaring one that does not fit would be worse than declaring specialUse and
+      saying plainly what it is. See docs/ARCHITECTURE.md for the Play note.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+      protectionLevel="normal": granted at install time and visible in app details.
+      "signature" would restrict Tara Core to apps signed with our key, which defeats
+      the point of a device-wide shared engine; "dangerous" would demand a runtime
+      prompt with no sensible system-supplied wording. The risk being gated here is
+      compute and battery, not access to the user's data. See docs/DECISIONS.md D9.
+    -->
+    <permission
+        android:name="dev.taracore.permission.BIND_INFERENCE"
+        android:protectionLevel="normal"
+        android:label="@string/permission_bind_inference_label"
+        android:description="@string/permission_bind_inference_description" />
+
+    <application>
+        <service
+            android:name="dev.taracore.service.TaraCoreService"
+            android:exported="true"
+            android:permission="dev.taracore.permission.BIND_INFERENCE"
+            android:foregroundServiceType="specialUse"
+            android:description="@string/service_description"
+            android:process=":engine">
+
+            <!--
+              The engine runs in its own :engine process. A native OOM while loading a
+              4 GB model then takes down the service, not the UI, and the UI's own
+              heap is never counted against the model's footprint.
+            -->
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="on-device LLM inference server for other apps" />
+
+            <intent-filter>
+                <action android:name="dev.taracore.action.BIND" />
+            </intent-filter>
+        </service>
+
+        <receiver
+            android:name="dev.taracore.service.BootReceiver"
+            android:exported="true"
+            android:enabled="false"
+            tools:ignore="ExportedReceiver">
+            <!--
+              Disabled in the manifest and enabled at runtime only when the user turns
+              "start on boot" on in Settings. Shipping it enabled would start a
+              foreground service on every boot for users who never asked.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

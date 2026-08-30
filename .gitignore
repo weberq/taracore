@@ -1,0 +1,12 @@
+*.iml
+.gradle/
+.idea/
+build/
+local.properties
+.cxx/
+.kotlin/
+captures/
+*.hprof
+*.gguf
+app/release/
+docs/.jekyll-cache/

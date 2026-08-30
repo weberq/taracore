@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Large GGUF files are mmap'd; extractNativeLibs=false keeps our .so page-aligned. -->
+</manifest>

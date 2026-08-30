@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="permission_bind_inference_label">Use on-device AI inference</string>
+    <string name="permission_bind_inference_description">Allows this app to run language models through Tara Core, using the device\'s CPU, memory and battery.</string>
+    <string name="service_description">Runs language models on this device so other apps can use them.</string>
+
+    <string name="notification_channel_name">Inference engine</string>
+    <string name="notification_channel_description">Shows which model is loaded and what it is doing.</string>
+
+    <string name="notification_title_idle">Tara Core is ready</string>
+    <string name="notification_title_loading">Loading %1$s…</string>
+    <string name="notification_title_ready">%1$s loaded</string>
+    <string name="notification_title_generating">Generating with %1$s…</string>
+    <string name="notification_action_stop">Stop</string>
+    <string name="notification_text_backend">%1$s · %2$s</string>
+    <string name="notification_text_speed">%1$s · %2$s · %3$.1f tok/s</string>
+</resources>

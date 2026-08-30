@@ -49,10 +49,12 @@ data class RunResult(
  * Drives both transports so a developer can see, on their own device, what the
  * choice between them actually costs.
  *
- * Time to first token is the number that separates them: AIDL delivers a token as a
- * Binder transaction the moment the engine produces it, while SSE has to travel
- * through a socket and an HTTP chunk boundary. Total throughput is nearly identical,
- * because both share one engine.
+ * Throughput is nearly identical, because both share one engine. Time to first token
+ * is the interesting number, and it does not favour the transport you would expect:
+ * measured back to back, the *second* run usually wins whichever transport it used,
+ * because the KV cache still holds the prompt's prefix and it skips the prompt eval.
+ * The transport difference is real but small enough to be swamped by that, which is
+ * exactly why this screen measures rather than asserts.
  */
 class SampleViewModel(app: Application) : AndroidViewModel(app) {
 

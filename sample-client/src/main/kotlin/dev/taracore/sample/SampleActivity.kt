@@ -199,7 +199,10 @@ private fun SampleApp(viewModel: SampleViewModel = viewModel()) {
                         )
                         Text(
                             "Throughput should be nearly identical -- both share one " +
-                                "engine. Time to first token is where they differ.",
+                                "engine. Time to first token is noisier than it looks: " +
+                                "whichever you run second usually wins, because the KV " +
+                                "cache still holds the prompt and it skips the prompt " +
+                                "eval. Swap the order and re-run to see it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 6.dp),

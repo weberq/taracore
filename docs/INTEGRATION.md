@@ -322,13 +322,24 @@ curl -N -s -H "Authorization: Bearer $TOKEN" \
 
 | | AIDL | HTTP |
 |---|---|---|
-| Time to first token | Lower — a Binder transaction per token | Higher — socket plus HTTP chunk framing |
 | Throughput | Same engine, so effectively identical | |
+| Time to first token | Both in the low hundreds of milliseconds; see below | |
 | Large prompts | Zero-copy over a pipe above 512 KB | Body size limited only by memory |
-| Cancellation | Explicit, stops within one token | Implicit on disconnect |
+| Cancellation | Explicit by request id, stops within one token | Implicit on disconnect, also within one token |
 | Permissions | `BIND_INFERENCE` | `INTERNET` plus a cleartext exception |
+| Type safety | Compile-time, from the AIDL contract | Whatever your JSON client gives you |
 | Works from | Android apps | Anything on the device |
 
-The `:sample-client` app runs both against the same prompt and shows the numbers side
-by side, so you can measure the difference on your own hardware instead of taking
-this table's word for it.
+**On latency, specifically:** it is tempting to assume AIDL wins, since a Binder
+transaction is cheaper than an HTTP chunk. Measured on a Pixel 9a, the transport
+difference is swamped by everything else — chiefly whether the prompt's prefix is
+still in the KV cache. A back-to-back run of the same prompt gave AIDL 205 ms to first
+token and HTTP 108 ms, because by then 19 of 20 prompt tokens were already resident
+and the second request skipped the prompt eval entirely.
+
+So do not choose on latency. Choose AIDL because you are writing an Android app and
+want typed calls, explicit cancellation and zero-copy large prompts; choose HTTP
+because your client is Flutter, React Native, Python, or anything else that already
+speaks OpenAI. The `:sample-client` app runs both against the same prompt and prints
+the numbers side by side, so you can measure it on your own hardware rather than
+trust this section.

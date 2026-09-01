@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The themed-icon layer (Android 13+). Same geometry as ic_launcher_foreground, drawn
+  flat.
+
+  Separate rather than reusing the foreground: the system replaces this layer's colour
+  with one of its own, so a gradient here is dead weight that also hides the fact that
+  it can never show. Keeping it flat makes the intent obvious to the next person.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:pathData="M 44.5,25.5 L 44.5,29.5
+                          M 63.5,25.5 L 63.5,29.5
+                          M 44.5,78.5 L 44.5,82.5
+                          M 63.5,78.5 L 63.5,82.5
+                          M 25.5,44.5 L 29.5,44.5
+                          M 25.5,63.5 L 29.5,63.5
+                          M 78.5,44.5 L 82.5,44.5
+                          M 78.5,63.5 L 82.5,63.5" />
+
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineJoin="round"
+        android:pathData="M 42,30 h 24 a 12,12 0 0 1 12,12 v 24
+                          a 12,12 0 0 1 -12,12 h -24 a 12,12 0 0 1 -12,-12 v -24
+                          a 12,12 0 0 1 12,-12 Z" />
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 54,41 Q 56.8,51.2 67,54 Q 56.8,56.8 54,67
+                          Q 51.2,56.8 41,54 Q 51.2,51.2 54,41 Z" />
+</vector>

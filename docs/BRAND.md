@@ -36,8 +36,29 @@ apps built on top are what users see. This is what they stand on.
 - Written **Tara Core**, two words, both capitalised. Never *TaraCore* in prose;
   `TaraCore` is only an identifier.
 - Namespace and identifiers: `dev.taracore`.
-- The star mark is a four-point star — long vertical and horizontal points, short
-  diagonals — in `#F5C542` on `#1B1F3B`. Deep indigo for a night sky, warm gold for
-  the star.
-- The mark is a placeholder pending real design work, and it is ours: no third-party
-  artwork, vector only.
+## The mark
+
+A four-point star inside a processor.
+
+The chip silhouette is borrowed deliberately from the visual language Android already
+uses for system-level AI — an outlined processor with something at its centre. Tara
+Core occupies that same slot: not an app you open, but a component other apps build
+on, and looking like one is useful information rather than imitation. What sits inside
+the chip is ours: the four-point star, in gold rather than the blue-to-lavender that
+convention runs to.
+
+**Colours.** The star and chip carry a gold gradient, `#FFE9A8 → #F5C542 → #E39A12` on
+a 45° diagonal, on the brand indigo `#1B1F3B`. A flat gold would have been fine; the
+gradient is there because a star should catch the light somewhere.
+
+**Construction.** 108 dp canvas, everything inside the 72 dp safe zone so no launcher
+mask clips a pin. Two pins per side, not three: at the 48 dp a launcher actually draws,
+three merge into a smear. The star has concave sides — a straight-edged four-point star
+reads as a diamond once it is small, and the pinch is what makes it a star.
+
+**Where it does not apply.** The notification icon stays the plain star. The system
+flattens it to a single colour at 24 dp, where a chip outline turns to mush, so brand
+consistency there would cost legibility.
+
+The source is `docs/brand/launcher-icon.svg`; `docs/brand/icon-variants.png` keeps the
+three options that were considered. Vector only, no third-party artwork.

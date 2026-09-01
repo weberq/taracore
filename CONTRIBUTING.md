@@ -59,6 +59,21 @@ Upstream changes its C API freely between tags — `llama_kv_cache_clear` became
 Read the headers rather than assuming, update `THIRD_PARTY_NOTICES.md` and
 `docs/SETUP.md` with the new tag, and commit the submodule bump on its own.
 
+## Adding a dependency
+
+Add a line to `app/src/main/assets/licenses.json` in the same commit. The About →
+Licences screen reads it, and Apache-2.0 — which covers almost everything we depend
+on — requires that the notice travels with the software. A dependency that ships
+without its attribution is a licence violation, not a missing nicety.
+
+The list is hand-maintained rather than generated. The generated options either want
+Google Play services on the classpath or scrape POMs that several of our dependencies
+do not publish usefully; the list is short enough that keeping it honest by hand is
+less work than keeping a generator honest.
+
+Update `THIRD_PARTY_NOTICES.md` too if the new dependency uses a licence not already
+listed there.
+
 ## Commit messages
 
 Conventional commits: `feat(service):`, `fix(engine):`, `docs:`, `chore:`. The body

@@ -1,5 +1,9 @@
 # Third-Party Notices
 
+> These notices are also shipped **inside the app**, under Settings → About →
+> Open source licences, with the full text of every licence. This file and
+> `app/src/main/assets/licenses.json` must be kept in step; see CONTRIBUTING.md.
+
 Tara Core itself is licensed under the Apache License, Version 2.0 (see `LICENSE`).
 It builds against and redistributes binaries produced from the following third-party
 components.

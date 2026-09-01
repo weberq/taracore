@@ -40,7 +40,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import dev.taracore.app.screens.AboutScreen
 import dev.taracore.app.screens.DashboardScreen
+import dev.taracore.app.screens.LicensesScreen
 import dev.taracore.app.screens.ModelsScreen
 import dev.taracore.app.screens.PlaygroundScreen
 import dev.taracore.app.screens.SettingsScreen
@@ -139,7 +141,20 @@ fun TaraCoreRoot(viewModel: MainViewModel = viewModel()) {
                 composable("models") { ModelsScreen(viewModel) }
                 composable("dashboard") { DashboardScreen(viewModel) }
                 composable("playground") { PlaygroundScreen(viewModel) }
-                composable("settings") { SettingsScreen(viewModel) }
+                composable("settings") {
+                    SettingsScreen(viewModel, onOpenAbout = { navController.navigate("about") })
+                }
+                // Not in the bottom bar: reached from Settings, and back from there.
+                composable("about") {
+                    AboutScreen(
+                        viewModel = viewModel,
+                        onBack = { navController.popBackStack() },
+                        onOpenLicenses = { navController.navigate("licenses") },
+                    )
+                }
+                composable("licenses") {
+                    LicensesScreen(onBack = { navController.popBackStack() })
+                }
             }
         }
     }

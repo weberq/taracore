@@ -56,7 +56,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
         item {
             Text("Tara Core", style = MaterialTheme.typography.headlineMedium)
             Text(
-                "One star every app steers by",
+                "AI that runs on your phone",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -67,7 +67,7 @@ fun DashboardScreen(viewModel: MainViewModel) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Update available: ${available.name}",
+                            "New version available: ${available.name}",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -95,24 +95,39 @@ fun DashboardScreen(viewModel: MainViewModel) {
         }
 
         item {
-            InfoCard("Engine") {
-                StatRow("Service", if (connected) stateLabel(status.state) else "disconnected")
-                StatRow("Model", status.loadedModelId ?: "none loaded")
+            InfoCard("Status") {
+                val hasModel = status.loadedModelId != null
+
                 StatRow(
-                    "Backend",
-                    // The flavour is what we compiled; the backend is what actually
-                    // initialised. A gpu build on a device with no usable Vulkan
-                    // driver silently runs on CPU, and that has to be visible.
-                    if (status.backend.equals("CPU", ignoreCase = true) &&
-                        BuildConfig.BACKEND_FLAVOUR == "gpu"
-                    ) {
-                        "CPU (gpu build, no GPU device found)"
-                    } else {
-                        "${status.backend} (${BuildConfig.BACKEND_FLAVOUR} build)"
+                    "Tara Core",
+                    when {
+                        !connected -> "not running"
+                        !hasModel -> "waiting for a model"
+                        else -> stateLabel(status.state)
                     },
                 )
-                StatRow("Context", if (status.contextSize > 0) "${status.contextSize} tokens" else "—")
-                StatRow("llama.cpp", status.engineVersion.ifBlank { "—" })
+                StatRow("Model", viewModel.displayName(status.loadedModelId) ?: "none yet")
+
+                // Everything below describes a loaded model. With none, these are
+                // four rows of dashes: noise for someone who just opened the app and
+                // needs to be pointed at the Models tab instead.
+                if (hasModel) {
+                    StatRow(
+                        "Running on",
+                        if (status.backend.equals("CPU", ignoreCase = true)) "Processor"
+                        else status.backend,
+                    )
+                    if (status.contextSize > 0) {
+                        StatRow("Conversation memory", contextLabel(status.contextSize))
+                    }
+                } else {
+                    Text(
+                        "Pick a model on the Models tab to get started.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
 
                 if (status.state == ServiceStatus.State.LOADING) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
@@ -122,18 +137,16 @@ fun DashboardScreen(viewModel: MainViewModel) {
 
         item {
             InfoCard("Memory") {
-                StatRow("Model resident", formatBytes(status.modelRamBytes))
-                StatRow("Device RAM", formatBytes(device.totalRamBytes))
-                StatRow("Available", formatBytes(device.availableRamBytes))
-                // This is the UI process's native heap. The model lives in the
-                // :engine process, so it does not appear here -- which is the point
-                // of the process split, and worth saying rather than confusing.
-                StatRow("UI native heap", formatBytes(device.nativeHeapBytes))
+                if (status.modelRamBytes > 0) {
+                    StatRow("Model is using", formatBytes(status.modelRamBytes))
+                }
+                StatRow("Free on this phone", formatBytes(device.availableRamBytes))
+                StatRow("Total on this phone", formatBytes(device.totalRamBytes))
                 StatRow("Free storage", formatBytes(device.freeStorageBytes))
 
                 if (status.unloadedUnderMemoryPressure) {
                     Text(
-                        "The model was unloaded because the system was short of memory.",
+                        "The model was closed because your phone ran low on memory.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier.padding(top = 8.dp),
@@ -143,27 +156,32 @@ fun DashboardScreen(viewModel: MainViewModel) {
         }
 
         item {
-            InfoCard("Throughput") {
-                StatRow("Last run", formatTokensPerSecond(status.lastTokensPerSecond))
-                StatRow("Queue depth", status.queueDepth.toString())
+            InfoCard("Speed") {
                 StatRow(
-                    "Idle unload in",
-                    when {
-                        // Nothing resident means there is nothing for the timer to
-                        // drop. Saying "disabled" here reads as a broken setting.
-                        status.loadedModelId == null -> "nothing loaded"
-                        status.idleUnloadInMs < 0 -> "disabled"
-                        else -> formatDuration(status.idleUnloadInMs)
+                    "Last reply",
+                    formatTokensPerSecond(status.lastTokensPerSecond).let {
+                        if (it == "—") "nothing yet" else it
                     },
                 )
+                if (status.queueDepth > 0) {
+                    StatRow("Requests waiting", status.queueDepth.toString())
+                }
+                // Only while there is actually something to free.
+                if (status.loadedModelId != null) {
+                    StatRow(
+                        "Frees memory in",
+                        if (status.idleUnloadInMs < 0) "never"
+                        else formatDuration(status.idleUnloadInMs),
+                    )
+                }
             }
         }
 
         item {
-            InfoCard("HTTP server") {
+            InfoCard("Local server") {
                 if (status.httpServerRunning) {
-                    StatRow("Listening on", "http://127.0.0.1:${status.httpPort}/v1")
-                    StatRow("Auth", if (settings.httpAuthRequired) "bearer token" else "disabled")
+                    StatRow("Address", "http://127.0.0.1:${status.httpPort}/v1")
+                    StatRow("Key required", if (settings.httpAuthRequired) "yes" else "no")
 
                     if (settings.httpToken.isNotBlank()) {
                         Row(
@@ -180,14 +198,14 @@ fun DashboardScreen(viewModel: MainViewModel) {
                             IconButton(onClick = {
                                 clipboard.setText(AnnotatedString(settings.httpToken))
                             }) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy token")
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy key")
                             }
                         }
                     }
                 } else {
                     Text(
-                        "Off. Enable it in Settings to reach the engine over HTTP from " +
-                            "any app on this device that speaks the OpenAI API.",
+                        "Off. Turn it on in Settings to let other apps on this phone " +
+                            "use the AI.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -197,12 +215,20 @@ fun DashboardScreen(viewModel: MainViewModel) {
     }
 }
 
+/** Matches the wording of the chips on the Settings screen. */
+private fun contextLabel(size: Int): String = when {
+    size <= 2048 -> "Short"
+    size <= 4096 -> "Medium"
+    size <= 8192 -> "Long"
+    else -> "Longest"
+}
+
 private fun stateLabel(state: Int): String = when (state) {
-    ServiceStatus.State.IDLE -> "idle"
-    ServiceStatus.State.LOADING -> "loading"
+    ServiceStatus.State.IDLE -> "ready"
+    ServiceStatus.State.LOADING -> "opening model"
     ServiceStatus.State.READY -> "ready"
-    ServiceStatus.State.GENERATING -> "generating"
-    ServiceStatus.State.ERROR -> "error"
+    ServiceStatus.State.GENERATING -> "thinking"
+    ServiceStatus.State.ERROR -> "something went wrong"
     else -> "unknown"
 }
 

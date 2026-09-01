@@ -37,6 +37,8 @@ class PerformanceWidget : AppWidgetProvider() {
                     ServiceStatus.State.IDLE,
                 ),
                 modelId = intent.getStringExtra(
+                    dev.taracore.service.TaraCoreService.EXTRA_MODEL_NAME
+                ) ?: intent.getStringExtra(
                     dev.taracore.service.TaraCoreService.EXTRA_MODEL
                 ),
                 backend = intent.getStringExtra(
@@ -128,7 +130,7 @@ class PerformanceWidget : AppWidgetProvider() {
             )
             views.setTextViewText(
                 R.id.widget_memory,
-                if (s.modelRamBytes > 0) "${formatBytes(s.modelRamBytes)} resident"
+                if (s.modelRamBytes > 0) "${formatBytes(s.modelRamBytes)} in memory"
                 else context.getString(R.string.widget_dash),
             )
 

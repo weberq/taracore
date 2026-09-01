@@ -394,7 +394,51 @@ The consequence, which is the right one: with nothing running, the widget shows 
 last known state rather than live data. A widget nobody placed costs nothing at all —
 the service checks for placed widget ids before doing any work.
 
-## D29 — JDK selection stays out of the repository
+## D29 — UI copy is written for users, not for developers
+
+The first pass at the interface explained itself the way this repository's comments
+do: what the kernel was doing, why a KV cache grows, that a foreground service is a
+platform requirement. That is the right register for a comment and the wrong one for
+a phone screen. Most people using this app will not know what a token is and should
+not have to.
+
+Rewritten throughout. The rules applied:
+
+- Say what it does for the reader, not how it works. "Frees up memory when you're not
+  using it", not "unloading gives the memory back to whatever you are actually using".
+- No jargon where a plain word exists: memory not RAM, speed not throughput, key not
+  bearer token, processor not CPU backend.
+- Numbers only where they mean something. The context chips are Short / Medium /
+  Long / Longest, not 2048 / 4096 / 8192 / 16384. Quantisation shows as "Standard
+  quality" and "Higher quality".
+- Never show an id. `qwen2.5-0.5b-instruct-q4km` is a database key; the screen says
+  "Qwen2.5 0.5B Instruct".
+- Hide rows that have no meaning yet. With no model loaded the dashboard used to show
+  four dashes and a "none"; it now says what to do instead.
+- The genuinely technical controls -- processor cores, GPU layers, mmap, mlock -- are
+  grouped under **Advanced** with a warning, rather than sitting between "how much it
+  remembers" and "check for updates".
+
+The explanations did not disappear, they moved: the reasoning now lives in code
+comments and in `docs/`, where the audience for it actually is.
+
+## D30 — the default model is the recommended one, not the smallest
+
+The fallback when no model is chosen used to be `downloaded().first()`, which sorts
+by size and therefore picked the smallest thing on disk. A 0.5B model answers badly
+enough that a first-time user concludes the *app* is broken rather than that the model
+is small, and they are not wrong to: it is the app's fault for choosing it for them.
+
+`ModelEntity.recommended` marks one catalogue entry (Qwen2.5 1.5B Q4_K_M), and
+`bestDownloaded()` prefers it, falling back to the *largest* downloaded model rather
+than the smallest. The Models screen marks it "recommended" and sorts it above the
+rest.
+
+Smaller models stay in the catalogue -- they are genuinely useful for narrow,
+constrained tasks, which is the whole argument of issue #1 -- but they are now a
+deliberate choice rather than the one made on the user's behalf.
+
+## D31 — JDK selection stays out of the repository
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

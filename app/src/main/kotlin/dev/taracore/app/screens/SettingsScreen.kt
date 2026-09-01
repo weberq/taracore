@@ -38,17 +38,17 @@ fun SettingsScreen(viewModel: MainViewModel) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { Text("Settings", style = MaterialTheme.typography.headlineMedium) }
+        // Ordered by who needs it. Everything a non-technical person might reasonably
+        // want to change comes first; the knobs that need you to know what a
+        // processor core is are grouped at the bottom under Advanced.
 
         item {
             InfoCard("Memory") {
-                Text("Unload the model after", style = MaterialTheme.typography.bodyMedium)
+                Text("Free up memory after", style = MaterialTheme.typography.bodyMedium)
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // Presets rather than a free-form field: the meaningful choices
-                    // are "soon", "a while" and "never", and a minute of precision
-                    // here changes nothing a user can feel.
                     listOf(
                         "1 min" to 60_000L,
                         "5 min" to 300_000L,
@@ -63,119 +63,108 @@ fun SettingsScreen(viewModel: MainViewModel) {
                     }
                 }
                 Text(
-                    "A resident model is the largest allocation on the device. Unloading " +
-                        "it when idle gives the memory back to whatever you are actually " +
-                        "using; the next request reloads it.",
+                    "Gives memory back to your other apps when you're not using the AI. " +
+                        "It starts up again next time you ask something.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
                 )
-
-                SettingSwitch(
-                    label = "Memory-map weights",
-                    description = "Lets the kernel page weights in on demand instead of " +
-                        "reading the whole file. Almost always the right choice.",
-                    checked = settings.useMmap,
-                    onChange = viewModel::setUseMmap,
-                )
-                SettingSwitch(
-                    label = "Lock weights in RAM",
-                    description = "Stops the kernel evicting the model under pressure. " +
-                        "Faster, but it takes the memory away from everything else.",
-                    checked = settings.useMlock,
-                    onChange = viewModel::setUseMlock,
-                )
             }
         }
 
         item {
-            InfoCard("Engine") {
-                val threads = if (settings.threads > 0) settings.threads
-                else ModelSpec.defaultThreads()
-
-                Text("Threads: $threads", style = MaterialTheme.typography.bodyMedium)
-                Slider(
-                    value = threads.toFloat(),
-                    onValueChange = { viewModel.setThreads(it.toInt()) },
-                    valueRange = 1f..16f,
-                    steps = 14,
-                )
-                Text(
-                    "More threads is not always faster: on a big.LITTLE phone, spilling " +
-                        "onto the little cores costs more in scheduling than it gains. " +
-                        "The default is half the CPU count.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-
-                Text(
-                    "Context: ${settings.contextSize} tokens",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
+            InfoCard("Conversation") {
+                Text("How much it remembers", style = MaterialTheme.typography.bodyMedium)
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    listOf(2048, 4096, 8192, 16384).forEach { size ->
+                    // Plain words rather than token counts. 4096 means nothing to
+                    // someone who has not read a model card.
+                    listOf(
+                        "Short" to 2048,
+                        "Medium" to 4096,
+                        "Long" to 8192,
+                        "Longest" to 16384,
+                    ).forEach { (label, size) ->
                         FilterChip(
                             selected = settings.contextSize == size,
                             onClick = { viewModel.setContextSize(size) },
-                            label = { Text("$size") },
+                            label = { Text(label) },
                         )
                     }
                 }
                 Text(
-                    "The KV cache grows with the context, and it is not memory-mapped. " +
-                        "Doubling this roughly doubles the RAM the model costs beyond " +
-                        "its weights.",
+                    "How far back the AI can remember in a single conversation. " +
+                        "Remembering more uses more memory.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-
-                Text(
-                    "GPU layers: ${settings.gpuLayers}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-                Slider(
-                    value = settings.gpuLayers.toFloat(),
-                    onValueChange = { viewModel.setGpuLayers(it.toInt()) },
-                    valueRange = 0f..64f,
-                    steps = 63,
-                )
-                Text(
-                    "Only meaningful in a gpu build with a working Vulkan driver. " +
-                        "0 keeps everything on the CPU.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
         }
 
         item {
-            InfoCard("HTTP server") {
+            InfoCard("Notifications") {
                 SettingSwitch(
-                    label = "Enable the OpenAI-compatible server",
-                    description = "Binds 127.0.0.1 only. Any app on this device can reach " +
-                        "loopback without a permission, so leave the token on.",
+                    label = "Always show a notification",
+                    description = "Keeps the model and speed on screen at all times.",
+                    checked = settings.showLiveNotification,
+                    onChange = viewModel::setShowLiveNotification,
+                )
+                Text(
+                    "Otherwise a notification only appears while the AI is working, " +
+                        "and disappears when it finishes. You can also add the home " +
+                        "screen widget to keep an eye on it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+
+        item {
+            InfoCard("General") {
+                SettingSwitch(
+                    label = "Switch models automatically",
+                    description = "Lets apps ask for a different model. " +
+                        "That request will take a few seconds longer.",
+                    checked = settings.autoLoadOnRequest,
+                    onChange = viewModel::setAutoLoad,
+                )
+                SettingSwitch(
+                    label = "Check for updates",
+                    description = "Looks for a new version once a day. " +
+                        "Nothing about you or your phone is sent.",
+                    checked = settings.checkForUpdates,
+                    onChange = viewModel::setCheckForUpdates,
+                )
+                SettingSwitch(
+                    label = "Start when the phone turns on",
+                    description = "Ready to use straight away, without opening the app.",
+                    checked = settings.startOnBoot,
+                    onChange = viewModel::setStartOnBoot,
+                )
+            }
+        }
+
+        item {
+            InfoCard("Other apps") {
+                SettingSwitch(
+                    label = "Let other apps connect",
+                    description = "Starts a server on this phone that other apps can " +
+                        "use. Nothing is shared over the internet.",
                     checked = settings.httpEnabled,
                     onChange = viewModel::setHttpEnabled,
                 )
 
                 if (settings.httpEnabled) {
-                    PortField(
-                        port = settings.httpPort,
-                        onCommit = viewModel::setHttpPort,
-                    )
-
                     SettingSwitch(
-                        label = "Require a bearer token",
+                        label = "Require a key",
                         description = if (settings.httpAuthRequired) {
-                            "Clients must send Authorization: Bearer <token>."
+                            "Apps need the key below to connect."
                         } else {
-                            "Unsafe: any app on this device can use the engine freely."
+                            "Not recommended. Any app on this phone can use the AI."
                         },
                         checked = settings.httpAuthRequired,
                         onChange = viewModel::setHttpAuthRequired,
@@ -183,7 +172,7 @@ fun SettingsScreen(viewModel: MainViewModel) {
 
                     if (settings.httpToken.isNotBlank()) {
                         Text(
-                            "Token",
+                            "Key",
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(top = 12.dp),
                         )
@@ -196,67 +185,75 @@ fun SettingsScreen(viewModel: MainViewModel) {
                             onClick = viewModel::regenerateToken,
                             modifier = Modifier.padding(top = 8.dp),
                         ) {
-                            Text("Regenerate token")
+                            Text("Create a new key")
                         }
                         Text(
-                            "Regenerating immediately invalidates the old token; every " +
-                                "client using it starts getting 401.",
+                            "Apps using the old key will stop working until you give " +
+                                "them the new one.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+
+                    PortField(port = settings.httpPort, onCommit = viewModel::setHttpPort)
                 }
             }
         }
 
         item {
-            InfoCard("Notifications") {
-                SettingSwitch(
-                    label = "Keep a live status notification",
-                    description = "Off by default. Tara Core normally shows a " +
-                        "notification only while a model is loading or answering, and " +
-                        "hides it from the status bar. Turn this on to keep a " +
-                        "permanent one showing the model, backend and speed.",
-                    checked = settings.showLiveNotification,
-                    onChange = viewModel::setShowLiveNotification,
-                )
+            InfoCard("Advanced") {
                 Text(
-                    "Android requires a foreground service to show a notification, so " +
-                        "one appears briefly whenever the engine is working. There is " +
-                        "no way around that — but it is gone again as soon as the work " +
-                        "is. The Dashboard has the same information without it, and " +
-                        "there is a home screen widget if you want it at a glance.",
+                    "You should not need to change these. They can make the AI slower " +
+                        "or stop it working.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
                 )
-            }
-        }
 
-        item {
-            InfoCard("Behaviour") {
+                val threads = if (settings.threads > 0) settings.threads
+                else ModelSpec.defaultThreads()
+
+                Text(
+                    "Processor cores: $threads",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Slider(
+                    value = threads.toFloat(),
+                    onValueChange = { viewModel.setThreads(it.toInt()) },
+                    valueRange = 1f..16f,
+                    steps = 14,
+                )
+
+                Text(
+                    "Graphics chip: ${settings.gpuLayers}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+                Slider(
+                    value = settings.gpuLayers.toFloat(),
+                    onValueChange = { viewModel.setGpuLayers(it.toInt()) },
+                    valueRange = 0f..64f,
+                    steps = 63,
+                )
+                Text(
+                    "Only works on some phones. Leave at 0 if you're not sure.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
                 SettingSwitch(
-                    label = "Load models on demand",
-                    description = "When a client asks for a model that is not resident, " +
-                        "load it instead of failing. Costs a full load on the request " +
-                        "that triggers it.",
-                    checked = settings.autoLoadOnRequest,
-                    onChange = viewModel::setAutoLoad,
+                    label = "Save memory",
+                    description = "Loads the model in pieces as it's needed. " +
+                        "Leave this on.",
+                    checked = settings.useMmap,
+                    onChange = viewModel::setUseMmap,
                 )
                 SettingSwitch(
-                    label = "Check for updates",
-                    description = "Asks GitHub once a day whether a newer release " +
-                        "exists. No account, no analytics, and nothing about you is " +
-                        "sent — it is a plain read of the public releases list.",
-                    checked = settings.checkForUpdates,
-                    onChange = viewModel::setCheckForUpdates,
-                )
-                SettingSwitch(
-                    label = "Start on boot",
-                    description = "Off by default. On, Tara Core starts a foreground " +
-                        "service every time the device boots.",
-                    checked = settings.startOnBoot,
-                    onChange = viewModel::setStartOnBoot,
+                    label = "Keep model in memory",
+                    description = "Stops other apps pushing the model out. Faster, " +
+                        "but uses more memory.",
+                    checked = settings.useMlock,
+                    onChange = viewModel::setUseMlock,
                 )
             }
         }
@@ -305,6 +302,6 @@ private fun PortField(port: Int, onCommit: (Int) -> Unit) {
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-        supportingText = { Text("1024–65535. Ports below 1024 need root.") },
+        supportingText = { Text("Leave this alone unless an app asks you to change it.") },
     )
 }

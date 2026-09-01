@@ -245,6 +245,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dismissUpdate() { _availableUpdate.value = null }
 
+    /**
+     * The catalogue name for a model id, for anything the user reads.
+     *
+     * The service only ever carries ids, because that is what clients address models
+     * by. Showing "qwen2.5-0.5b-instruct-q4km" to someone choosing a model is showing
+     * them a database key.
+     */
+    fun displayName(id: String?): String? {
+        if (id == null) return null
+        return models.value.firstOrNull { it.id == id }?.displayName ?: id
+    }
+
     // ---------------------------------------------------------------- models
 
     fun download(modelId: String) {

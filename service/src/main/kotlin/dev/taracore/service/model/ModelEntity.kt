@@ -29,6 +29,14 @@ data class ModelEntity(
     @ColumnInfo(name = "est_ram_bytes") val estRamBytes: Long,
     val license: String,
     val description: String = "",
+    /**
+     * The model to fall back to when the user has not chosen one.
+     *
+     * Not simply "the smallest downloaded". A first-time user judges the whole app on
+     * whatever answers them first, and the smallest model answers badly enough to
+     * look like the app is broken rather than the model being small.
+     */
+    val recommended: Boolean = false,
     /** Absolute path once downloaded; null while it is only a catalog entry. */
     val path: String? = null,
     @ColumnInfo(name = "downloaded_at") val downloadedAt: Long = 0,
@@ -50,6 +58,19 @@ interface ModelDao {
     @Query("SELECT * FROM models WHERE path IS NOT NULL ORDER BY family, size_bytes")
     suspend fun downloaded(): List<ModelEntity>
 
+    /**
+     * The best default among what is actually on disk: the recommended model if it is
+     * downloaded, otherwise the largest one, which is the best this device has.
+     */
+    @Query(
+        """
+        SELECT * FROM models WHERE path IS NOT NULL
+        ORDER BY recommended DESC, size_bytes DESC
+        LIMIT 1
+        """
+    )
+    suspend fun bestDownloaded(): ModelEntity?
+
     @Query("SELECT * FROM models WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): ModelEntity?
 
@@ -69,7 +90,8 @@ interface ModelDao {
     suspend fun deleteUserSupplied(id: String)
 }
 
-@Database(entities = [ModelEntity::class], version = 1, exportSchema = false)
+// version 2: added ModelEntity.recommended
+@Database(entities = [ModelEntity::class], version = 2, exportSchema = false)
 abstract class ModelDatabase : RoomDatabase() {
     abstract fun modelDao(): ModelDao
 }

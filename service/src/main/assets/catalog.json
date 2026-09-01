@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_note": "size_bytes is approximate and only gates the free-space check; the download worker trusts the server's Content-Length. An empty sha256 means the digest has not been pinned yet -- the worker downloads but logs that it could not verify. See docs/DECISIONS.md, open TODOs.",
+  "_note": "Descriptions are shown to users in the Models screen, so they are written for someone choosing a model rather than for a developer. size_bytes is approximate and only gates the free-space check; the download worker trusts the server's Content-Length. An empty sha256 means the digest has not been pinned yet -- see docs/DECISIONS.md D13.",
   "models": [
     {
       "id": "qwen2.5-0.5b-instruct-q4km",
@@ -13,7 +13,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 710619955,
       "license": "Apache-2.0",
-      "description": "Smallest useful model here. Runs on anything; good for smoke tests and simple classification."
+      "description": "Very fast, but its answers are basic. Fine for short questions.",
+      "recommended": false
     },
     {
       "id": "qwen2.5-0.5b-instruct-q8",
@@ -26,7 +27,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 870999654,
       "license": "Apache-2.0",
-      "description": "Near-lossless quantisation of the 0.5B. Barely larger, noticeably steadier."
+      "description": "Slightly better than the standard 0.5B, and still basic.",
+      "recommended": false
     },
     {
       "id": "qwen2.5-1.5b-instruct-q4km",
@@ -39,7 +41,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 1520959488,
       "license": "Apache-2.0",
-      "description": "The default recommendation: coherent, multilingual, comfortable on a 6 GB phone."
+      "description": "Recommended. A good balance of speed and quality, and the best first choice for most phones.",
+      "recommended": true
     },
     {
       "id": "qwen2.5-1.5b-instruct-q8",
@@ -52,7 +55,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 2220359680,
       "license": "Apache-2.0",
-      "description": "Higher-fidelity 1.5B for devices with RAM to spare."
+      "description": "Better answers than the standard version, if you have memory to spare.",
+      "recommended": false
     },
     {
       "id": "qwen2.5-3b-instruct-q4km",
@@ -65,7 +69,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 2558001152,
       "license": "Qwen Research License",
-      "description": "Research licence, not Apache. Read it before shipping."
+      "description": "Noticeably better answers, but slower. Free for personal use only.",
+      "recommended": false
     },
     {
       "id": "qwen2.5-3b-instruct-q8",
@@ -78,7 +83,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 4197974015,
       "license": "Qwen Research License",
-      "description": "Research licence, not Apache. Needs 8 GB or more."
+      "description": "Higher quality again, and slower still. Free for personal use only.",
+      "recommended": false
     },
     {
       "id": "qwen2.5-7b-instruct-q4km",
@@ -91,7 +97,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 5874122752,
       "license": "Apache-2.0",
-      "description": "Flagship size. Wants 12 GB of RAM and patience; single digits of tokens/s on CPU."
+      "description": "Among the best answers here, but slow. Needs a phone with lots of memory.",
+      "recommended": false
     },
     {
       "id": "qwen2.5-7b-instruct-q8",
@@ -104,7 +111,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 9998172160,
       "license": "Apache-2.0",
-      "description": "Only sensible on a 16 GB device, and slow even there. Listed for completeness."
+      "description": "Very large and very slow on a phone. Listed for completeness.",
+      "recommended": false
     },
     {
       "id": "llama-3.2-1b-instruct-q4km",
@@ -117,7 +125,8 @@
       "ctx_default": 8192,
       "est_ram_bytes": 1205023539,
       "license": "Llama 3.2 Community License",
-      "description": "Long default context for its size. Attribution required by the licence."
+      "description": "Small and quick, and remembers longer conversations than most.",
+      "recommended": false
     },
     {
       "id": "llama-3.2-1b-instruct-q8",
@@ -130,7 +139,8 @@
       "ctx_default": 8192,
       "est_ram_bytes": 1822425087,
       "license": "Llama 3.2 Community License",
-      "description": "Attribution required by the licence."
+      "description": "The same small model with better quality answers.",
+      "recommended": false
     },
     {
       "id": "llama-3.2-3b-instruct-q4km",
@@ -143,7 +153,8 @@
       "ctx_default": 8192,
       "est_ram_bytes": 2666528768,
       "license": "Llama 3.2 Community License",
-      "description": "Strong instruction following for the size. Attribution required."
+      "description": "Follows instructions well for its size. A good middle option.",
+      "recommended": false
     },
     {
       "id": "llama-3.2-3b-instruct-q8",
@@ -156,7 +167,8 @@
       "ctx_default": 8192,
       "est_ram_bytes": 4354736128,
       "license": "Llama 3.2 Community License",
-      "description": "Attribution required by the licence."
+      "description": "Better answers than the standard version, and slower.",
+      "recommended": false
     },
     {
       "id": "gemma-2-2b-it-q4km",
@@ -169,7 +181,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 2292711424,
       "license": "Gemma Terms of Use",
-      "description": "Fixed 8K training context. Accept Google's terms on the model page first."
+      "description": "A capable all-rounder from Google. You'll need to accept Google's terms first.",
+      "recommended": false
     },
     {
       "id": "gemma-2-2b-it-q8",
@@ -182,7 +195,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 3582984191,
       "license": "Gemma Terms of Use",
-      "description": "Accept Google's terms on the model page first."
+      "description": "Higher quality version. You'll need to accept Google's terms first.",
+      "recommended": false
     },
     {
       "id": "gemma-2-9b-it-q4km",
@@ -195,7 +209,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 7176454143,
       "license": "Gemma Terms of Use",
-      "description": "The largest entry here. 12 GB device minimum, and expect a slow crawl on CPU."
+      "description": "Very large. Only worth it on a phone with plenty of memory, and expect to wait.",
+      "recommended": false
     },
     {
       "id": "gemma-2-9b-it-q8",
@@ -208,7 +223,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 12072255488,
       "license": "Gemma Terms of Use",
-      "description": "Beyond what any current phone runs comfortably. Listed for completeness."
+      "description": "Larger than most phones can handle. Listed for completeness.",
+      "recommended": false
     },
     {
       "id": "phi-3.5-mini-instruct-q4km",
@@ -221,7 +237,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 3112697856,
       "license": "MIT",
-      "description": "3.8B parameters, 128K training context, MIT licensed. Strong at reasoning for its size."
+      "description": "Strong at reasoning and working through problems for its size.",
+      "recommended": false
     },
     {
       "id": "phi-3.5-mini-instruct-q8",
@@ -234,7 +251,8 @@
       "ctx_default": 4096,
       "est_ram_bytes": 5126488064,
       "license": "MIT",
-      "description": "Higher-fidelity Phi-3.5 for 8 GB devices and up."
+      "description": "Higher quality version of the same model.",
+      "recommended": false
     },
     {
       "id": "smollm2-135m-instruct-q4km",
@@ -247,7 +265,8 @@
       "ctx_default": 2048,
       "est_ram_bytes": 357302272,
       "license": "Apache-2.0",
-      "description": "Too small to be useful, small enough for CI. What scripts/fetch-model.sh --tiny pulls."
+      "description": "Tiny and very fast, but its answers wander. Mostly useful for testing.",
+      "recommended": false
     }
   ]
 }

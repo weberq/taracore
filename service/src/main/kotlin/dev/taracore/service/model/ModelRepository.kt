@@ -117,6 +117,10 @@ class ModelRepository(private val context: Context) {
 
     suspend fun downloaded(): List<ModelEntity> = withContext(Dispatchers.IO) { dao.downloaded() }
 
+    /** The model to use when the user has not picked one. See [ModelDao.bestDownloaded]. */
+    suspend fun bestDownloaded(): ModelEntity? =
+        withContext(Dispatchers.IO) { dao.bestDownloaded() }
+
     suspend fun listModelInfo(loadedId: String?): List<ModelInfo> =
         withContext(Dispatchers.IO) { dao.all().map { it.toModelInfo(loadedId) } }
 

@@ -42,9 +42,11 @@ fun ModelsScreen(viewModel: MainViewModel) {
     val status by viewModel.status.collectAsStateWithLifecycle()
 
     val grouped = models.sortedWith(
-        // Downloaded first, then by family and size: what you can use now is what
-        // you want to see first.
+        // Downloaded first, then the recommended one, then by family and size: what
+        // you can use now is what you want to see first, and the model we would pick
+        // for you should be easy to find.
         compareByDescending<ModelEntity> { it.downloaded }
+            .thenByDescending { it.recommended }
             .thenBy { it.family }
             .thenBy { it.sizeBytes }
     )
@@ -57,8 +59,7 @@ fun ModelsScreen(viewModel: MainViewModel) {
             Column {
                 Text("Models", style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "${formatBytes(device.availableRamBytes)} of " +
-                        "${formatBytes(device.totalRamBytes)} RAM free · " +
+                    "${formatBytes(device.availableRamBytes)} memory free · " +
                         "${formatBytes(device.freeStorageBytes)} storage free",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -80,6 +81,22 @@ fun ModelsScreen(viewModel: MainViewModel) {
             )
         }
     }
+}
+
+/**
+ * Quantisation level in words.
+ *
+ * The same model appears twice in the catalogue at different quantisations, so users
+ * do need to tell them apart -- but "Q4_K_M" tells them nothing. What it actually
+ * means to them is a trade between size and quality.
+ */
+private fun qualityLabel(quant: String): String = when (quant.uppercase()) {
+    "Q4_K_M", "Q4_K_S", "Q4_0" -> "Standard quality"
+    "Q8_0" -> "Higher quality"
+    "Q5_K_M", "Q5_K_S", "Q6_K" -> "High quality"
+    "Q2_K", "Q3_K_M", "Q3_K_S", "Q3_K_L" -> "Smaller, lower quality"
+    "F16", "BF16", "F32" -> "Full quality"
+    else -> quant
 }
 
 @Composable
@@ -118,16 +135,16 @@ private fun ModelCard(
                         fontWeight = FontWeight.SemiBold,
                     )
                     Text(
-                        "${model.quant} · ${formatBytes(model.sizeBytes)} · " +
-                            "${model.ctxDefault} ctx · ${model.license}",
+                        "${qualityLabel(model.quant)} · ${formatBytes(model.sizeBytes)} · " +
+                            model.license,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (isLoaded) {
-                    AssistChip(onClick = {}, label = { Text("loaded") })
-                } else if (isActive) {
-                    AssistChip(onClick = {}, label = { Text("active") })
+                when {
+                    isLoaded -> AssistChip(onClick = {}, label = { Text("in use") })
+                    isActive -> AssistChip(onClick = {}, label = { Text("selected") })
+                    model.recommended -> AssistChip(onClick = {}, label = { Text("recommended") })
                 }
             }
 
@@ -141,10 +158,10 @@ private fun ModelCard(
 
             Text(
                 text = if (fits) {
-                    "Needs about ${formatBytes(model.estRamBytes)} of RAM"
+                    "Needs ${formatBytes(model.estRamBytes)} of memory"
                 } else {
-                    "Needs about ${formatBytes(model.estRamBytes)} of RAM — more than the " +
-                        "${formatBytes(availableRam)} free right now"
+                    "Needs ${formatBytes(model.estRamBytes)} — you have " +
+                        "${formatBytes(availableRam)} free"
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (fits) MaterialTheme.colorScheme.onSurfaceVariant
@@ -161,7 +178,7 @@ private fun ModelCard(
                     Text(
                         when (inFlight.state) {
                             DownloadProgress.State.QUEUED -> "Queued"
-                            DownloadProgress.State.VERIFYING -> "Verifying checksum…"
+                            DownloadProgress.State.VERIFYING -> "Checking the download…"
                             else -> "${formatPercent(inFlight.fraction)} · " +
                                 "${formatBytes(inFlight.bytesDownloaded)} of " +
                                 formatBytes(inFlight.totalBytes)
@@ -190,13 +207,13 @@ private fun ModelCard(
 
                     model.downloaded -> {
                         Button(onClick = onSetActive, enabled = !isLoaded) {
-                            Text(if (isLoaded) "Loaded" else "Set active")
+                            Text(if (isLoaded) "In use" else "Use this one")
                         }
                         TextButton(onClick = onDelete) { Text("Delete") }
                     }
 
                     model.url.isBlank() -> Text(
-                        "No download URL",
+                        "Added by hand",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

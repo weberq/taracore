@@ -1,17 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="permission_bind_inference_label">Use on-device AI inference</string>
-    <string name="permission_bind_inference_description">Allows this app to run language models through Tara Core, using the device\'s CPU, memory and battery.</string>
-    <string name="service_description">Runs language models on this device so other apps can use them.</string>
+    <!--
+      User-facing copy. Written for someone who has never heard of a language model
+      and does not want to. Say what it does for them, not how it works: the
+      explanations belong in code comments and in docs/, not on a phone screen.
+    -->
+    <string name="permission_bind_inference_label">Use on-device AI</string>
+    <string name="permission_bind_inference_description">Lets this app use Tara Core to run AI on your phone. Uses battery and memory while it works.</string>
+    <string name="service_description">Runs AI on this phone so your other apps can use it.</string>
 
-    <string name="channel_activity_name">Engine activity</string>
-    <string name="channel_activity_description">Shown only while a model is loading or answering. Silent, and hidden from the status bar.</string>
-    <string name="channel_status_name">Live status</string>
-    <string name="channel_status_description">An always-visible summary of the loaded model and its speed. Off unless you turn it on.</string>
+    <string name="channel_activity_name">While working</string>
+    <string name="channel_activity_description">A quiet notification that appears only while the AI is thinking, then disappears.</string>
+    <string name="channel_status_name">Always-on status</string>
+    <string name="channel_status_description">Keeps the model and speed on screen at all times. Off unless you turn it on.</string>
 
     <string name="notification_title_idle">Tara Core is ready</string>
-    <string name="notification_title_loading">Loading %1$s…</string>
-    <string name="notification_title_ready">%1$s loaded</string>
-    <string name="notification_title_generating">Generating with %1$s…</string>
+    <string name="notification_title_loading">Opening %1$s…</string>
+    <string name="notification_title_ready">%1$s is ready</string>
+    <string name="notification_title_generating">Thinking…</string>
     <string name="notification_action_stop">Stop</string>
 </resources>

@@ -75,6 +75,7 @@ class TaraCoreService : Service() {
 
         const val EXTRA_STATE = "state"
         const val EXTRA_MODEL = "model"
+        const val EXTRA_MODEL_NAME = "model_name"
         const val EXTRA_BACKEND = "backend"
         const val EXTRA_TOKENS_PER_SECOND = "tps"
         const val EXTRA_MODEL_RAM = "ram"
@@ -358,6 +359,10 @@ class TaraCoreService : Service() {
      * payload must actually differ, and at most once a second. Broadcasting per token
      * would wake the launcher process hundreds of times a completion.
      */
+    /** Catalogue name of the resident model, refreshed on load rather than per token. */
+    @Volatile
+    private var widgetModelName: String? = null
+
     private fun publishWidgetState() {
         val status = buildStatus()
         val tps = lastTokensPerSecond
@@ -376,6 +381,7 @@ class TaraCoreService : Service() {
                     .setPackage(packageName)
                     .putExtra(EXTRA_STATE, status.state)
                     .putExtra(EXTRA_MODEL, status.loadedModelId ?: status.activeModelId)
+                    .putExtra(EXTRA_MODEL_NAME, widgetModelName)
                     .putExtra(EXTRA_BACKEND, status.backend)
                     .putExtra(EXTRA_TOKENS_PER_SECOND, tps)
                     .putExtra(EXTRA_MODEL_RAM, status.modelRamBytes)
@@ -506,7 +512,9 @@ class TaraCoreService : Service() {
         val wanted = modelId
             ?: engine.loadedModelId
             ?: currentSettings.activeModelId
-            ?: repository.downloaded().firstOrNull()?.id
+            // Not the first downloaded: that is the smallest, and the smallest model
+            // answers badly enough that a new user blames the app.
+            ?: repository.bestDownloaded()?.id
             ?: return TaraCoreErrors.NO_MODEL_LOADED to
                 "no model is loaded and none is downloaded"
 
@@ -543,6 +551,7 @@ class TaraCoreService : Service() {
                 }
             }
             settings.setActiveModel(wanted)
+            widgetModelName = entity.displayName
             settle()
             null
         } else {
@@ -893,7 +902,7 @@ class TaraCoreService : Service() {
 
             scope.launch {
                 val activeId = currentSettings.activeModelId
-                val firstDownloaded = repository.downloaded().firstOrNull()?.id
+                val firstDownloaded = repository.bestDownloaded()?.id
                 val wantedId = activeId ?: firstDownloaded
 
                 val decision = WarmUpPolicy.decide(

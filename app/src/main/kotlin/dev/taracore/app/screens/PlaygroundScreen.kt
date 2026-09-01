@@ -71,7 +71,7 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
             Column {
                 Text("Playground", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    status.loadedModelId ?: "no model loaded",
+                    viewModel.displayName(status.loadedModelId) ?: "no model chosen yet",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -92,15 +92,14 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        "This model is a smoke test, not an assistant",
+                        "This model is very small",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
                     Text(
-                        "It has too few parameters to stay on topic, and it will " +
-                            "invent facts confidently. Download a 0.5B model or larger " +
-                            "on the Models tab for answers worth reading.",
+                        "Its answers will wander and it will get things wrong. " +
+                            "Try a bigger model on the Models tab.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onErrorContainer,
                     )
@@ -131,7 +130,7 @@ fun PlaygroundScreen(viewModel: MainViewModel) {
                 value = input,
                 onValueChange = { input = it },
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Ask something") },
+                placeholder = { Text("Ask anything") },
                 enabled = connected,
                 maxLines = 5,
             )
@@ -167,19 +166,18 @@ private fun EmptyState(connected: Boolean, status: ServiceStatus) {
         ) {
             Text(
                 when {
-                    !connected -> "Not connected to the engine"
-                    status.loadedModelId == null -> "No model loaded"
+                    !connected -> "Starting up"
+                    status.loadedModelId == null -> "No model yet"
                     else -> "Ready"
                 },
                 style = MaterialTheme.typography.titleMedium,
             )
             Text(
                 when {
-                    !connected -> "The service is starting. This screen reconnects on its own."
+                    !connected -> "This will only take a moment."
                     status.loadedModelId == null ->
-                        "Download one on the Models tab and set it active, or just send a " +
-                            "message — the engine loads the active model on demand."
-                    else -> "Ask it something."
+                        "Pick a model on the Models tab to get started."
+                    else -> "Ask it anything."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -211,7 +209,7 @@ private fun TurnBubble(turn: ChatTurn) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    text = turn.text.ifBlank { if (turn.streaming) "…" else "" },
+                    text = turn.text.ifBlank { if (turn.streaming) "…" else "(no reply)" },
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = 4.dp),
                 )

@@ -20,6 +20,7 @@ data class CatalogEntry(
     @SerialName("est_ram_bytes") val estRamBytes: Long,
     val license: String,
     val description: String = "",
+    val recommended: Boolean = false,
 )
 
 @Serializable
@@ -63,5 +64,6 @@ object CatalogLoader {
         estRamBytes = estRamBytes,
         license = license,
         description = description,
+        recommended = recommended,
     )
 }

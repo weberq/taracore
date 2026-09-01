@@ -234,6 +234,16 @@ fun LicensesScreen(onBack: () -> Unit) {
         data.licenses.forEach { (id, text) ->
             item {
                 InfoCard("$id full text") {
+                    // Without this, the placeholders in the Apache appendix read as a
+                    // bug in our app -- which is exactly how they were first reported.
+                    Text(
+                        "This is the licence exactly as published. Any text in square " +
+                            "brackets belongs to it: the licence ends with a template " +
+                            "for people applying it to their own work.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 10.dp),
+                    )
                     // Legal texts are hard-wrapped at 80 columns with meaningful
                     // indentation. Letting a phone re-wrap them turns "Apache License
                     // Version 2.0" into ragged nonsense, so the block scrolls

@@ -219,7 +219,10 @@ just do not read a valid answer as a considered one.
 
 ## Licence
 
-Apache-2.0. `llama.cpp` is MIT; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Copyright 2026 WeberQ Global Pvt. Ltd., under the Apache License 2.0.
+`llama.cpp` is MIT. See [LICENSE](LICENSE), [NOTICE](NOTICE) and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the same notices ship inside
+the app under Settings, About, Open source licences.
 
 Tara Core ships **no model weights**. Models are downloaded at the user's request and
 carry their own licences — Apache-2.0, MIT, the Gemma Terms of Use, the Llama 3.2

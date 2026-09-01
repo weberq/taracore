@@ -1,5 +1,5 @@
 // Tara Core -- JNI bridge between LlamaEngine.kt and the native Engine.
-// Copyright 2026 The Tara Core Authors. Licensed under the Apache License 2.0.
+// Copyright 2026 WeberQ Global Pvt. Ltd. Licensed under the Apache License 2.0.
 #include <jni.h>
 
 #include <android/log.h>

@@ -4,7 +4,9 @@
 > Open source licences, with the full text of every licence. This file and
 > `app/src/main/assets/licenses.json` must be kept in step; see CONTRIBUTING.md.
 
-Tara Core itself is licensed under the Apache License, Version 2.0 (see `LICENSE`).
+Tara Core is Copyright 2026 WeberQ Global Pvt. Ltd., licensed under the Apache
+License, Version 2.0. See `LICENSE` for the licence and `NOTICE` for the
+attribution notice required by section 4(d).
 It builds against and redistributes binaries produced from the following third-party
 components.
 

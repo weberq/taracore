@@ -1,5 +1,5 @@
 // Tara Core -- native inference engine.
-// Copyright 2026 The Tara Core Authors. Licensed under the Apache License 2.0.
+// Copyright 2026 WeberQ Global Pvt. Ltd. Licensed under the Apache License 2.0.
 #pragma once
 
 #include <atomic>

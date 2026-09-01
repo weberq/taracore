@@ -905,11 +905,13 @@ class TaraCoreService : Service() {
                 val firstDownloaded = repository.bestDownloaded()?.id
                 val wantedId = activeId ?: firstDownloaded
 
+                val candidate = wantedId?.let { repository.byId(it) }
                 val decision = WarmUpPolicy.decide(
                     residentModelId = engine.loadedModelId?.takeIf { engine.isLoaded() },
                     activeModelId = activeId,
                     firstDownloadedId = firstDownloaded,
-                    candidate = wantedId?.let { repository.byId(it) },
+                    candidate = candidate,
+                    nonEvictableBytes = candidate?.let { repository.nonEvictableBytes(it) } ?: 0L,
                     availableMemoryBytes = repository.availableMemoryBytes(),
                 )
 

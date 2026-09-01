@@ -38,8 +38,11 @@ class WarmUpPolicyTest {
         active: String? = "m",
         firstDownloaded: String? = "m",
         candidate: ModelEntity? = model(),
+        nonEvictable: Long = 300_000_000L,
         available: Long = 2 * GB,
-    ) = WarmUpPolicy.decide(resident, active, firstDownloaded, candidate, available)
+    ) = WarmUpPolicy.decide(
+        resident, active, firstDownloaded, candidate, nonEvictable, available,
+    )
 
     @Test
     fun `a resident model short-circuits`() {
@@ -75,30 +78,41 @@ class WarmUpPolicyTest {
     }
 
     @Test
-    fun `declines rather than warm a model that will not fit`() {
-        // The refusal that justifies warmUp being a service call rather than an
-        // exposed id the client loads itself.
-        val d = decide(candidate = model(estRam = 3 * GB), available = 1 * GB)
+    fun `declines rather than warm when the resident part will not fit`() {
+        val d = decide(nonEvictable = 2 * GB, available = 1 * GB)
         assertTrue("expected a decline, got $d", d is WarmUpDecision.Decline)
         d as WarmUpDecision.Decline
         assertEquals(TaraCoreErrors.OUT_OF_MEMORY, d.code)
-        // The message has to name both numbers: a client that cannot act on it should
-        // at least be able to log something a human can diagnose.
-        assertTrue(d.reason, d.reason.contains("3000 MB"))
+        assertTrue(d.reason, d.reason.contains("2000 MB"))
         assertTrue(d.reason, d.reason.contains("1000 MB"))
     }
 
     @Test
-    fun `warms when the estimate exactly equals available memory`() {
+    fun `warms a large model when only its weights are large`() {
+        // Regression. The check used to compare the whole footprint against free
+        // memory, so a 2 GB model on a phone with 700 MB free was declined -- and
+        // then loaded and ran perfectly when the user asked for it explicitly,
+        // because mmap'd weights need no free memory at all. Only the KV cache and
+        // compute buffers do.
+        val d = decide(
+            candidate = model(estRam = 2_300_000_000L),
+            nonEvictable = 500_000_000L,
+            available = 700_000_000L,
+        )
+        assertEquals(WarmUpDecision.Proceed("m"), d)
+    }
+
+    @Test
+    fun `warms when the resident part exactly equals available memory`() {
         // Boundary: the check is strictly greater-than, so an exact fit proceeds.
         assertEquals(WarmUpDecision.Proceed("m"),
-            decide(candidate = model(estRam = 1 * GB), available = 1 * GB))
+            decide(nonEvictable = 1 * GB, available = 1 * GB))
     }
 
     @Test
     fun `a resident model wins even when the active model would not fit`() {
         // Nothing to do, so the memory estimate is never consulted.
-        val d = decide(resident = "loaded", candidate = model(estRam = 9 * GB), available = 1)
+        val d = decide(resident = "loaded", nonEvictable = 9 * GB, available = 1)
         assertEquals(WarmUpDecision.AlreadyResident("loaded"), d)
     }
 }

@@ -72,6 +72,7 @@ fun ModelsScreen(viewModel: MainViewModel) {
                 model = model,
                 progress = downloads[model.id],
                 availableRam = device.availableRamBytes,
+                totalRam = device.totalRamBytes,
                 isActive = settings.activeModelId == model.id,
                 isLoaded = status.loadedModelId == model.id,
                 onDownload = { viewModel.download(model.id) },
@@ -104,6 +105,7 @@ private fun ModelCard(
     model: ModelEntity,
     progress: DownloadProgress?,
     availableRam: Long,
+    totalRam: Long,
     isActive: Boolean,
     isLoaded: Boolean,
     onDownload: () -> Unit,
@@ -111,7 +113,13 @@ private fun ModelCard(
     onDelete: () -> Unit,
     onSetActive: () -> Unit,
 ) {
-    val fits = model.estRamBytes <= availableRam
+    // Two different questions, and the old code asked the wrong one. The weights are
+    // memory-mapped, so they do not need free memory: only the KV cache and compute
+    // buffers do. Comparing the whole footprint against free memory told people that
+    // models which run perfectly well would not fit.
+    val nonEvictable = (model.estRamBytes - model.sizeBytes).coerceAtLeast(64L * 1000 * 1000)
+    val tooBigForPhone = totalRam > 0 && model.estRamBytes > (totalRam * 0.75).toLong()
+    val slowRightNow = !tooBigForPhone && nonEvictable > availableRam
     // Non-null exactly when a transfer is in flight, so the UI below needs one check
     // rather than a state test and a null test that the compiler knows are redundant.
     val inFlight = progress?.takeIf {
@@ -157,15 +165,17 @@ private fun ModelCard(
             }
 
             Text(
-                text = if (fits) {
-                    "Needs ${formatBytes(model.estRamBytes)} of memory"
-                } else {
-                    "Needs ${formatBytes(model.estRamBytes)} — you have " +
-                        "${formatBytes(availableRam)} free"
+                text = when {
+                    tooBigForPhone ->
+                        "Needs ${formatBytes(model.estRamBytes)} — too much for this phone"
+                    slowRightNow ->
+                        "Needs ${formatBytes(model.estRamBytes)}. Will work, but may be " +
+                            "slow until you close some apps"
+                    else -> "Needs ${formatBytes(model.estRamBytes)}"
                 },
                 style = MaterialTheme.typography.bodySmall,
-                color = if (fits) MaterialTheme.colorScheme.onSurfaceVariant
-                else MaterialTheme.colorScheme.error,
+                color = if (tooBigForPhone) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 6.dp),
             )
 

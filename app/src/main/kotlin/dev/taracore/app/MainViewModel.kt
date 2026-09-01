@@ -265,8 +265,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _message.value = "Not enough free space for ${entity.displayName}"
             return
         }
-        if (!repository.likelyFitsInMemory(entity)) {
-            _message.value = "${entity.displayName} may not fit in this device's memory"
+        // Only for models this phone genuinely cannot run. The old check compared the
+        // whole footprint against free memory and fired for almost anything over a
+        // gigabyte, including models that load and run fine -- a warning that is
+        // usually wrong is worse than none, because people learn to ignore it.
+        if (!repository.fitsOnThisDevice(entity)) {
+            _message.value = "${entity.displayName} is probably too large for this phone"
         }
         DownloadRegistry.enqueue(getApplication(), modelId)
     }

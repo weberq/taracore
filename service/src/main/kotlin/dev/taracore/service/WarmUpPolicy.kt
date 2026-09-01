@@ -35,6 +35,8 @@ object WarmUpPolicy {
         activeModelId: String?,
         firstDownloadedId: String?,
         candidate: ModelEntity?,
+        /** Only the part that cannot be paged out; see ModelRepository. */
+        nonEvictableBytes: Long,
         availableMemoryBytes: Long,
     ): WarmUpDecision {
         if (residentModelId != null) return WarmUpDecision.AlreadyResident(residentModelId)
@@ -58,11 +60,16 @@ object WarmUpPolicy {
 
         // The refusal that matters. Warming is an optimisation, and it must never be
         // the thing that pushes the device into reclaiming another app's pages.
-        if (candidate.estRamBytes > availableMemoryBytes) {
+        //
+        // Compared against the *non-evictable* footprint, not the whole model. The
+        // weights are mmap'd and need no free memory at all, so testing the full
+        // figure declined models that load and run perfectly well -- which made
+        // warm-up useless exactly when it would have helped most.
+        if (nonEvictableBytes > availableMemoryBytes) {
             return WarmUpDecision.Decline(
                 TaraCoreErrors.OUT_OF_MEMORY,
                 "declined to warm $wanted: it needs about " +
-                    "${candidate.estRamBytes / 1_000_000} MB and only " +
+                    "${nonEvictableBytes / 1_000_000} MB of free memory and only " +
                     "${availableMemoryBytes / 1_000_000} MB is available",
             )
         }

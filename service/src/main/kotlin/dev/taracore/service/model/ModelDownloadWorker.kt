@@ -149,11 +149,13 @@ class ModelDownloadWorker(
             )
         }
 
-        if (!repo.likelyFitsInMemory(entity)) {
-            // A warning, not a refusal: availMem moves, and the user may well want the
-            // file on disk for a device that will have room later.
-            Log.w(TAG, "$modelId estimated ${entity.estRamBytes / 1_000_000} MB of RAM " +
-                "but only ${repo.availableMemoryBytes() / 1_000_000} MB is available")
+        if (!repo.fitsOnThisDevice(entity)) {
+            // Still only a warning: the user asked for it, they may be planning to
+            // free space, and refusing a download over a memory estimate would be
+            // presumptuous. The Models screen says the same thing before they tap.
+            Log.w(TAG, "$modelId needs about ${entity.estRamBytes / 1_000_000} MB, " +
+                "which is more than this device can comfortably give it " +
+                "(${repo.totalMemoryBytes() / 1_000_000} MB total)")
         }
 
         val builder = Request.Builder().url(entity.url)

@@ -29,6 +29,13 @@ class ModelRepository(private val context: Context) {
 
         /** Refuse a download unless free space is at least size * this. */
         const val FREE_SPACE_HEADROOM = 1.1
+
+        /**
+         * Fraction of total RAM a model may claim before we call it too big for the
+         * device. The rest is the system, the launcher and whatever the user is
+         * actually doing.
+         */
+        const val DEVICE_MEMORY_CEILING = 0.75
     }
 
     private val db: ModelDatabase by lazy {
@@ -167,12 +174,41 @@ class ModelRepository(private val context: Context) {
         freeSpaceBytes() >= (sizeBytes * FREE_SPACE_HEADROOM).toLong()
 
     /**
-     * Whether the model is likely to fit in RAM. Advisory: the caller shows a
-     * warning, it does not block, because `availMem` is a moving target and the
-     * kernel will happily evict other apps' pages to make room.
+     * The part of a model's footprint that has to be real, resident memory.
+     *
+     * The weights do not: they are mmap'd, so they are clean file-backed pages the
+     * kernel can drop and re-read from storage at will. What cannot be paged out is
+     * the KV cache, the compute buffers and the tokenizer -- anonymous memory, which
+     * for a 2B model at 4096 context is a few hundred megabytes rather than gigabytes.
      */
-    fun likelyFitsInMemory(entity: ModelEntity): Boolean =
-        entity.estRamBytes <= availableMemoryBytes()
+    fun nonEvictableBytes(entity: ModelEntity): Long =
+        (entity.estRamBytes - entity.sizeBytes).coerceAtLeast(64L * 1000 * 1000)
+
+    /**
+     * Whether this device can run the model at all.
+     *
+     * Measured against *total* memory, not available memory. This was wrong before
+     * and wrong in the worst direction: comparing the whole footprint against
+     * `availMem` declared Gemma 2 2B unusable on an 8 GB phone with 1.6 GB free, and
+     * it then loaded and ran perfectly, because mmap'd weights simply do not need
+     * free RAM. The warning was discouraging people from models that work.
+     *
+     * The 75% ceiling leaves room for the system and whatever else is in the
+     * foreground. Above it the kernel would spend its time evicting the model's own
+     * pages, which is thrashing rather than running.
+     */
+    fun fitsOnThisDevice(entity: ModelEntity): Boolean =
+        entity.estRamBytes <= (totalMemoryBytes() * DEVICE_MEMORY_CEILING).toLong()
+
+    /**
+     * Whether it will run *well right now*, as opposed to at all.
+     *
+     * Only the non-evictable part has to be available: everything else can be paged
+     * in on demand. False means "expect it to be slow until something closes", not
+     * "this will fail".
+     */
+    fun runsWellRightNow(entity: ModelEntity): Boolean =
+        nonEvictableBytes(entity) <= availableMemoryBytes()
 
     private fun guessQuant(fileName: String): String {
         val n = fileName.uppercase()

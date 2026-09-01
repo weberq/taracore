@@ -438,7 +438,38 @@ Smaller models stay in the catalogue -- they are genuinely useful for narrow,
 constrained tasks, which is the whole argument of issue #1 -- but they are now a
 deliberate choice rather than the one made on the user's behalf.
 
-## D31 — JDK selection stays out of the repository
+## D31 — "will it fit" is measured against total memory, not free memory
+
+The original check was `estRamBytes <= availMem`, and it was wrong in the worst
+direction: it told users that models which run perfectly well would not fit.
+
+Observed on a Pixel 9a. Gemma 2 2B Q4_K_M, estimated 2.3 GB, with 1.6 GB reported
+free: the Models screen showed "Needs 2.3 GB — you have 1.6 GB free" in red and the
+download warned "may not fit in this device's memory". The user loaded it anyway. It
+took 10.6 seconds and worked.
+
+The reason is the whole point of using mmap: **the weights are file-backed and
+evictable, so they do not need free memory at all.** The kernel pages them in and
+drops them again under pressure. What genuinely has to be resident is the KV cache,
+the compute buffers and the tokenizer -- anonymous memory, a few hundred megabytes
+for a 2B model, not gigabytes.
+
+So there are two questions, and the code now asks both separately:
+
+- **Can this device run it?** `estRamBytes <= totalMem * 0.75`. Above that the kernel
+  spends its time evicting the model's own pages, which is thrashing rather than
+  running. This is the only case shown as a problem.
+- **Will it run well right now?** `nonEvictableBytes <= availMem`. False means "expect
+  it to be slow until something closes", which is worth saying and is not a refusal.
+
+`WarmUpPolicy` had the same bug and declined to warm models that load fine, making
+warm-up useless in exactly the conditions where it would have helped most. It now
+tests the non-evictable footprint.
+
+Nothing ever blocked the user -- the explicit load path had no memory check and was
+right not to. But a warning that is usually wrong is worse than no warning, because
+people learn to ignore it, and this one was steering them away from the better models
+their phone can actually run.
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

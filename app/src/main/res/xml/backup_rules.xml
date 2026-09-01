@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Settings are worth restoring; several gigabytes of model weights are not, and the
-  API token must not travel between devices. The models directory lives under
-  external files and is excluded explicitly.
+  Backup is disabled at the application level (android:allowBackup="false"), so
+  nothing here takes effect. It is kept, and kept empty, so that anyone who turns
+  backup back on starts from "nothing is backed up" rather than from a default that
+  would sweep up the API token in files/taracore_settings.json.
 -->
 <full-backup-content>
-    <include domain="sharedpref" path="." />
-    <exclude domain="external" path="models" />
-    <exclude domain="database" path="taracore-models" />
+    <exclude domain="root" path="." />
 </full-backup-content>

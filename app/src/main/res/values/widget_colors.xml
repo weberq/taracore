@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light-mode widget palette. values-night overrides these. -->
+    <color name="widget_surface">#FFFFFFFF</color>
+    <color name="widget_text">#FF1B1F3B</color>
+    <color name="widget_muted">#FF5B6079</color>
+    <color name="widget_accent">#FFB8901F</color>
+</resources>

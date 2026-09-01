@@ -62,6 +62,23 @@ class TaraCoreService : Service() {
         /** Extra on the start intent: load this model as soon as the service is up. */
         const val EXTRA_PRELOAD_MODEL = "dev.taracore.extra.PRELOAD_MODEL"
 
+        /**
+         * Broadcast when the engine's visible state changes, for the home screen
+         * widget.
+         *
+         * A broadcast rather than a direct call because `:service` must not depend on
+         * `:app` -- the dependency runs the other way. Sent package-targeted, which
+         * is what makes it deliverable to a manifest receiver on Android 8+; a truly
+         * implicit custom broadcast would simply be dropped.
+         */
+        const val ACTION_STATUS_CHANGED = "dev.taracore.action.STATUS_CHANGED"
+
+        const val EXTRA_STATE = "state"
+        const val EXTRA_MODEL = "model"
+        const val EXTRA_BACKEND = "backend"
+        const val EXTRA_TOKENS_PER_SECOND = "tps"
+        const val EXTRA_MODEL_RAM = "ram"
+
         fun startIntent(context: Context, preloadModelId: String? = null) =
             Intent(context, TaraCoreService::class.java).apply {
                 preloadModelId?.let { putExtra(EXTRA_PRELOAD_MODEL, it) }
@@ -109,14 +126,14 @@ class TaraCoreService : Service() {
         notifications = ServiceNotifications(this)
         clients = ClientRegistry(this)
 
-        notifications.ensureChannel()
+        notifications.ensureChannels()
 
         engine = EngineController(onStateChange = ::onEngineStateChanged)
 
         idle = IdleUnloader(scope) {
             Log.i(TAG, "idle timeout reached")
             engine.unload()
-            maybeLeaveForeground()
+            syncForegroundState()
         }
 
         queue = RequestQueue(scope)
@@ -143,7 +160,11 @@ class TaraCoreService : Service() {
                 ) {
                     applyHttpSetting(snapshot)
                 }
-                updateNotification()
+                // sync, not update: showLiveNotification is one of the three things
+                // that justify the foreground, so toggling it has to be able to both
+                // create and remove the notification -- not merely redraw one that
+                // may not exist.
+                syncForegroundState()
             }
         }
     }
@@ -158,12 +179,12 @@ class TaraCoreService : Service() {
                 return START_NOT_STICKY
             }
             ServiceNotifications.ACTION_UNLOAD -> {
-                scope.launch { engine.unload(); maybeLeaveForeground() }
+                scope.launch { engine.unload(); syncForegroundState() }
                 return START_STICKY
             }
         }
 
-        enterForeground()
+        syncForegroundState()
 
         intent?.getStringExtra(EXTRA_PRELOAD_MODEL)?.let { modelId ->
             scope.launch { ensureModelLoaded(modelId, null) }
@@ -224,35 +245,81 @@ class TaraCoreService : Service() {
 
     // ------------------------------------------------------------ foreground
 
-    private fun enterForeground() {
-        if (isForeground.getAndSet(true)) return
-        val notification = notifications.build(buildStatus(), lastTokensPerSecond)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                ServiceNotifications.NOTIFICATION_ID,
-                notification,
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
-            )
-        } else {
-            startForeground(ServiceNotifications.NOTIFICATION_ID, notification)
-        }
+    /**
+     * Whether the service currently needs foreground status.
+     *
+     * Android will not run a foreground service without a visible notification --
+     * that is enforced by the platform, not a choice we get to make. So the way to
+     * stop showing a permanent notification is to stop being permanently foreground.
+     *
+     * Three things justify it, and nothing else does:
+     *
+     *  1. **The HTTP server is listening.** No client is bound to keep us alive, so
+     *     without foreground the process is killable and the port would silently stop
+     *     answering.
+     *  2. **Work is in flight.** A client that asked for a completion and then went
+     *     to the background must still get its answer.
+     *  3. **The user asked for a live status notification.** Opt-in, off by default.
+     *
+     * Idle with a model resident is deliberately *not* on that list. Bound clients
+     * keep the service alive on their own, and if there are none, being killed is the
+     * correct outcome -- the model reloads on the next request.
+     */
+    private fun foregroundIsJustified(): Boolean {
+        if (currentSettings.showLiveNotification) return true
+        if (httpServer?.isRunning == true) return true
+        val state = engine.state.value
+        return state is EngineState.Loading ||
+            state is EngineState.Generating ||
+            queue.depth.value > 0
     }
 
     /**
-     * Drop out of the foreground when there is nothing to justify it: no model
-     * resident and no HTTP server listening. The service stays alive for bound
-     * clients -- it just stops claiming foreground priority and stops showing a
-     * notification for work it is not doing.
+     * Bring the foreground state in line with [foregroundIsJustified].
+     *
+     * Called after anything that could change the answer. Cheap and idempotent, so
+     * over-calling it is fine and missing a call is the only real risk.
      */
-    private fun maybeLeaveForeground() {
-        val nothingResident = engine.loadedModelId == null
-        val noServer = httpServer?.isRunning != true
-        if (nothingResident && noServer && isForeground.compareAndSet(true, false)) {
-            Log.i(TAG, "nothing loaded and no server; leaving the foreground")
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            updateNotification()
+    private fun syncForegroundState() {
+        publishWidgetState()
+        val justified = foregroundIsJustified()
+        when {
+            justified && !isForeground.get() -> enterForeground()
+            !justified && isForeground.get() -> leaveForeground()
+            justified -> updateNotification()
         }
+    }
+
+    private fun enterForeground() {
+        if (isForeground.getAndSet(true)) return
+        val notification = notifications.build(
+            status = buildStatus(),
+            lastTokensPerSecond = lastTokensPerSecond,
+            live = currentSettings.showLiveNotification,
+        )
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    ServiceNotifications.NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
+                )
+            } else {
+                startForeground(ServiceNotifications.NOTIFICATION_ID, notification)
+            }
+        }.onFailure {
+            // Android 12+ throws ForegroundServiceStartNotAllowedException if we try
+            // to go foreground from the background without an exemption. Losing
+            // foreground status is survivable; crashing the engine process is not.
+            isForeground.set(false)
+            Log.w(TAG, "could not enter the foreground", it)
+        }
+    }
+
+    private fun leaveForeground() {
+        if (!isForeground.compareAndSet(true, false)) return
+        Log.i(TAG, "nothing justifies the foreground; dropping the notification")
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     private fun stopEverything() {
@@ -269,13 +336,60 @@ class TaraCoreService : Service() {
 
     private fun onEngineStateChanged(state: EngineState) {
         if (state is EngineState.Ready) unloadedUnderPressure.set(false)
-        updateNotification()
+        // sync rather than update: an engine state change is exactly when the answer
+        // to "should we still be foreground" changes. Only refreshing the
+        // notification here left it on screen after every generation -- the service
+        // had stopped working but never re-checked whether it should still be
+        // foreground, which is the whole behaviour this is meant to deliver.
+        syncForegroundState()
+    }
+
+    /** Last state broadcast, so an unchanged one costs nothing. */
+    @Volatile
+    private var lastBroadcast: String? = null
+
+    @Volatile
+    private var lastBroadcastAt: Long = 0
+
+    /**
+     * Tell the widget what changed.
+     *
+     * Throttled two ways, because this is called from the generation path: the
+     * payload must actually differ, and at most once a second. Broadcasting per token
+     * would wake the launcher process hundreds of times a completion.
+     */
+    private fun publishWidgetState() {
+        val status = buildStatus()
+        val tps = lastTokensPerSecond
+        val key = "${status.state}|${status.loadedModelId}|${status.backend}|" +
+            "${(tps * 10).toInt()}|${status.modelRamBytes}"
+
+        val now = System.currentTimeMillis()
+        if (key == lastBroadcast && now - lastBroadcastAt < 5_000) return
+        if (now - lastBroadcastAt < 1_000 && key == lastBroadcast) return
+        lastBroadcast = key
+        lastBroadcastAt = now
+
+        runCatching {
+            sendBroadcast(
+                Intent(ACTION_STATUS_CHANGED)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_STATE, status.state)
+                    .putExtra(EXTRA_MODEL, status.loadedModelId ?: status.activeModelId)
+                    .putExtra(EXTRA_BACKEND, status.backend)
+                    .putExtra(EXTRA_TOKENS_PER_SECOND, tps)
+                    .putExtra(EXTRA_MODEL_RAM, status.modelRamBytes)
+            )
+        }.onFailure { Log.w(TAG, "could not publish widget state", it) }
     }
 
     private fun updateNotification() {
         if (!isForeground.get()) return
-        runCatching { notifications.update(buildStatus(), lastTokensPerSecond) }
-            .onFailure { Log.w(TAG, "could not update the notification", it) }
+        runCatching {
+            notifications.update(
+                buildStatus(), lastTokensPerSecond, currentSettings.showLiveNotification,
+            )
+        }.onFailure { Log.w(TAG, "could not update the notification", it) }
     }
 
     private suspend fun applyHttpSetting(snapshot: SettingsSnapshot) {
@@ -291,7 +405,7 @@ class TaraCoreService : Service() {
             runCatching { server.start() }
                 .onSuccess {
                     Log.i(TAG, "HTTP server listening on 127.0.0.1:${snapshot.httpPort}")
-                    enterForeground()
+                    syncForegroundState()
                 }
                 .onFailure {
                     Log.e(TAG, "could not start the HTTP server on port ${snapshot.httpPort}", it)
@@ -303,7 +417,7 @@ class TaraCoreService : Service() {
                 runCatching { it.stop() }
             }
             httpServer = null
-            maybeLeaveForeground()
+            syncForegroundState()
         }
         updateNotification()
     }
@@ -411,9 +525,15 @@ class TaraCoreService : Service() {
             ?: return TaraCoreErrors.MODEL_NOT_FOUND to "model $wanted is not downloaded"
 
         progress?.let { runCatching { it.onProgress(wanted, 0f) } }
+        // Directly, not via syncForegroundState: the engine has not entered Loading
+        // yet, so the decision function would not see any work to justify it. A load
+        // reads gigabytes and must survive the app that asked going background.
         enterForeground()
 
         val result = engine.load(specFor(wanted, path))
+        // And back out if the load was all that was wanted -- a warm-up or an
+        // explicit loadModel leaves nothing running behind it.
+        val settle = { syncForegroundState() }
         return if (result.ok) {
             unloadedUnderPressure.set(false)
             progress?.let {
@@ -423,11 +543,13 @@ class TaraCoreService : Service() {
                 }
             }
             settings.setActiveModel(wanted)
+            settle()
             null
         } else {
             progress?.let {
                 runCatching { it.onError(wanted, TaraCoreErrors.MODEL_LOAD_FAILED, result.error) }
             }
+            settle()
             TaraCoreErrors.MODEL_LOAD_FAILED to result.error
         }
     }
@@ -534,6 +656,10 @@ class TaraCoreService : Service() {
         streamCallbacks.remove(req.requestId)
         requestOwners.remove(req.requestId)
         idle.touch()
+        // Belt and braces: the engine's own state change should already have done
+        // this, but a request that failed before the engine ever ran would not have
+        // produced one.
+        syncForegroundState()
     }
 
     // ---------------------------------------------------------------- binder
@@ -575,7 +701,7 @@ class TaraCoreService : Service() {
                 cb?.onError("", TaraCoreErrors.INVALID_REQUEST, "modelId must not be null")
                 return
             }
-            enterForeground()
+            syncForegroundState()
             scope.launch {
                 idle.touch()
                 ensureModelLoaded(id, cb)
@@ -587,7 +713,7 @@ class TaraCoreService : Service() {
             clients.recordRequest()
             scope.launch {
                 engine.unload()
-                maybeLeaveForeground()
+                syncForegroundState()
             }
         }
 
@@ -610,7 +736,7 @@ class TaraCoreService : Service() {
             // the whole completion. Documented in docs/API.md as main-thread-hostile.
             return runBlocking {
                 idle.touch()
-                enterForeground()
+                syncForegroundState()
 
                 ensureModelLoaded(
                     request.modelId,
@@ -706,7 +832,7 @@ class TaraCoreService : Service() {
 
             streamCallbacks[requestId] = cb
             requestOwners[requestId] = uid
-            enterForeground()
+            syncForegroundState()
 
             scope.launch {
                 idle.touch()
@@ -796,7 +922,7 @@ class TaraCoreService : Service() {
                         // use, and a warm that reset the countdown would keep the
                         // model resident for an app that never went on to ask
                         // anything.
-                        enterForeground()
+                        syncForegroundState()
                         ensureModelLoaded(decision.modelId, cb, allowAutoLoad = true)
                     }
                 }
@@ -821,7 +947,7 @@ class TaraCoreService : Service() {
             modelId: String?,
             allowAutoLoad: Boolean?,
         ): Pair<Int, String>? {
-            enterForeground()
+            syncForegroundState()
             idle.touch()
             // Per-request wins; null defers to the global setting, so nothing changes
             // for callers that do not send the field.

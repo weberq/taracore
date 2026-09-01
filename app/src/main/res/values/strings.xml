@@ -2,4 +2,13 @@
 <resources>
     <string name="app_name">Tara Core</string>
     <string name="tagline">One star every app steers by</string>
+
+    <string name="widget_description">Shows the loaded model, its speed and memory use.</string>
+    <string name="widget_state_idle">Idle</string>
+    <string name="widget_state_loading">Loading</string>
+    <string name="widget_state_ready">Ready</string>
+    <string name="widget_state_generating">Generating</string>
+    <string name="widget_state_disconnected">Not running</string>
+    <string name="widget_no_model">No model loaded</string>
+    <string name="widget_dash">—</string>
 </resources>

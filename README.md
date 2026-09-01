@@ -71,6 +71,21 @@ The UI and the engine live in **separate processes**. A native OOM while mapping
 several gigabytes takes down the engine, not the interface, and the UI's own heap is
 never counted against the model's footprint.
 
+## Install
+
+**Google Play** — *(pending first release)*
+
+**GitHub Releases** — [latest release](https://github.com/weberq/taracore/releases/latest).
+Download the `.apk`; it is arm64-only and needs Android 8.0 or newer. Verify it:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+```
+
+The app checks GitHub once a day for a newer release and offers it on the Dashboard.
+That check sends nothing about you — it is an unauthenticated read of a public page,
+and it is off automatically for installs from Play. It can be disabled in Settings.
+
 ## Quick start
 
 ```bash
@@ -119,6 +134,14 @@ its live binder to a third app, and we do not want to honour that silently.
 
 **Loopback only.** The HTTP server binds `127.0.0.1` and rejects any non-loopback
 remote address before routing. It never listens on a network interface.
+
+**A quiet foreground service.** Android will not run a foreground service without a
+notification, so Tara Core is only foreground while it is actually working — loading
+a model, answering a request, or running the HTTP server. The rest of the time it is
+a plain bound service with no notification at all. The notification it does show sits
+on a `MIN`-importance channel, so it is silent and keeps out of the status bar. A
+permanent, more detailed one is available in Settings for anyone who wants it, and
+there is a home screen widget as a quieter alternative.
 
 **A bearer token.** On by default, 32 random bytes generated on first run, compared
 in constant time. This is the control that actually matters for HTTP: *any* app on

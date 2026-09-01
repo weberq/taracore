@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Settings
@@ -90,7 +90,7 @@ private data class Destination(
 private val DESTINATIONS = listOf(
     Destination("models", "Models", Icons.Default.Download),
     Destination("dashboard", "Dashboard", Icons.Default.Dashboard),
-    Destination("playground", "Playground", Icons.Default.Chat),
+    Destination("playground", "Playground", Icons.AutoMirrored.Filled.Chat),
     Destination("settings", "Settings", Icons.Default.Settings),
 )
 

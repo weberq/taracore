@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The launcher inflates the widget with the system theme, so the widget has to
+         carry its own dark palette rather than inherit the app's. -->
+    <color name="widget_surface">#FF23274A</color>
+    <color name="widget_text">#FFE8E9F2</color>
+    <color name="widget_muted">#FF9EA3BE</color>
+    <color name="widget_accent">#FFF5C542</color>
+</resources>

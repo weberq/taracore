@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widgets are RemoteViews, not Compose: the launcher inflates this in its own
+  process, so only a fixed set of view types is allowed and nothing here can hold a
+  reference back into the app.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="@drawable/widget_background">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/widget_icon"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:src="@drawable/ic_notification"
+            android:contentDescription="@string/app_name"
+            android:tint="@color/widget_accent" />
+
+        <TextView
+            android:id="@+id/widget_state"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="12sp"
+            android:textColor="@color/widget_muted"
+            android:text="@string/widget_state_idle" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:maxLines="1"
+        android:ellipsize="middle"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_text"
+        android:text="@string/widget_no_model" />
+
+    <TextView
+        android:id="@+id/widget_speed"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="1"
+        android:textSize="20sp"
+        android:textColor="@color/widget_accent"
+        android:text="@string/widget_dash" />
+
+    <TextView
+        android:id="@+id/widget_memory"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:maxLines="2"
+        android:textSize="11sp"
+        android:textColor="@color/widget_muted"
+        android:text="@string/widget_dash" />
+</LinearLayout>

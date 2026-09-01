@@ -210,6 +210,30 @@ fun SettingsScreen(viewModel: MainViewModel) {
         }
 
         item {
+            InfoCard("Notifications") {
+                SettingSwitch(
+                    label = "Keep a live status notification",
+                    description = "Off by default. Tara Core normally shows a " +
+                        "notification only while a model is loading or answering, and " +
+                        "hides it from the status bar. Turn this on to keep a " +
+                        "permanent one showing the model, backend and speed.",
+                    checked = settings.showLiveNotification,
+                    onChange = viewModel::setShowLiveNotification,
+                )
+                Text(
+                    "Android requires a foreground service to show a notification, so " +
+                        "one appears briefly whenever the engine is working. There is " +
+                        "no way around that — but it is gone again as soon as the work " +
+                        "is. The Dashboard has the same information without it, and " +
+                        "there is a home screen widget if you want it at a glance.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        }
+
+        item {
             InfoCard("Behaviour") {
                 SettingSwitch(
                     label = "Load models on demand",
@@ -218,6 +242,14 @@ fun SettingsScreen(viewModel: MainViewModel) {
                         "that triggers it.",
                     checked = settings.autoLoadOnRequest,
                     onChange = viewModel::setAutoLoad,
+                )
+                SettingSwitch(
+                    label = "Check for updates",
+                    description = "Asks GitHub once a day whether a newer release " +
+                        "exists. No account, no analytics, and nothing about you is " +
+                        "sent — it is a plain read of the public releases list.",
+                    checked = settings.checkForUpdates,
+                    onChange = viewModel::setCheckForUpdates,
                 )
                 SettingSwitch(
                     label = "Start on boot",

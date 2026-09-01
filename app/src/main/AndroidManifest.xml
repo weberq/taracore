@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
       Tara Core holds its own permission. Defining a permission does not grant it,
@@ -9,9 +10,22 @@
     -->
     <uses-permission android:name="dev.taracore.permission.BIND_INFERENCE" />
 
+    <!--
+      Backup is off, deliberately.
+
+      Settings live in files/taracore_settings.json, and that file contains the HTTP
+      server's bearer token. Backing it up would carry a live credential to Google's
+      servers and then onto whatever device is restored next, to gate a server the
+      user may not even have enabled there. Models are gigabytes and must not be
+      backed up either.
+
+      What is left worth preserving is a handful of preferences that take seconds to
+      set again. That is a poor trade against copying a credential around, so the
+      whole thing is off rather than carefully filtered.
+    -->
     <application
         android:name=".TaraCoreApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -19,6 +33,23 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.TaraCore">
+
+        <!--
+          TaraCoreApplication implements Configuration.Provider, which is on-demand
+          WorkManager initialisation. The default initializer has to be removed or it
+          initialises WorkManager first with its own configuration and ours is
+          silently ignored.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
 
         <activity
             android:name=".MainActivity"
@@ -31,5 +62,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Optional home screen widget. It holds no service binding and starts
+          nothing: the service pushes it a snapshot when its state changes, so a
+          widget nobody placed costs exactly nothing.
+        -->
+        <receiver
+            android:name=".widget.PerformanceWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="dev.taracore.action.STATUS_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_performance_info" />
+        </receiver>
     </application>
 </manifest>

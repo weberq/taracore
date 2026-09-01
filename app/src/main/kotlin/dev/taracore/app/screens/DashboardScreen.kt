@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -15,6 +16,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -44,6 +46,8 @@ fun DashboardScreen(viewModel: MainViewModel) {
     val device by viewModel.deviceStats.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
+    val update by viewModel.availableUpdate.collectAsStateWithLifecycle()
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -56,6 +60,38 @@ fun DashboardScreen(viewModel: MainViewModel) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+
+        update?.let { available ->
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            "Update available: ${available.name}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        if (available.notes.isNotBlank()) {
+                            Text(
+                                available.notes.lineSequence().take(4).joinToString("\n"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 6.dp),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.padding(top = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Button(onClick = { uriHandler.openUri(available.htmlUrl) }) {
+                                Text("View release")
+                            }
+                            TextButton(onClick = viewModel::skipUpdate) { Text("Skip") }
+                            TextButton(onClick = viewModel::dismissUpdate) { Text("Later") }
+                        }
+                    }
+                }
+            }
         }
 
         item {

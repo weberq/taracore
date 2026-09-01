@@ -12,3 +12,9 @@ app/release/
 docs/.jekyll-cache/
 build/models/
 .kotlin/
+
+# Signing material must never be committed.
+keystore.properties
+*.jks
+*.keystore
+dist/

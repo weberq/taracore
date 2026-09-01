@@ -1,0 +1,146 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0   # full history so the changelog can diff against the last tag
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install the NDK and CMake
+        run: |
+          sdkmanager --install "ndk;27.0.12077973" "cmake;3.22.1" \
+                               "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Cache the native build
+        uses: actions/cache@v4
+        with:
+          path: engine/.cxx
+          key: cxx-release-${{ hashFiles('.gitmodules', 'engine/src/main/cpp/**') }}
+          restore-keys: cxx-release-
+
+      - name: Check the tag matches versionName
+        # Publishing v1.2.0 from a build that calls itself 1.1.0 breaks the in-app
+        # update check permanently: it would offer the update again on every launch.
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts | head -1)"
+          echo "tag=$TAG versionName=$VERSION"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag $TAG does not match versionName $VERSION in app/build.gradle.kts"
+            exit 1
+          fi
+
+      - name: Unit tests
+        run: ./gradlew testCpuReleaseUnitTest :api:testReleaseUnitTest --stacktrace
+
+      - name: Decode the signing keystore
+        # Absent secrets produce an unsigned build rather than a failure, so a fork
+        # can still run this workflow end to end.
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::no KEYSTORE_BASE64 secret; the artefacts will be unsigned"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the APK and the Play bundle
+        env:
+          TARACORE_KEYSTORE: ${{ steps.keystore.outputs.present == 'true' && format('{0}/upload.jks', runner.temp) || '' }}
+          TARACORE_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          TARACORE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          TARACORE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew :app:assembleCpuRelease :app:bundleCpuRelease --stacktrace
+
+      - name: Verify 16 KB page alignment
+        run: |
+          set -euo pipefail
+          READELF="$(find "$ANDROID_HOME/ndk" -name llvm-readelf -type f | head -1)"
+          SO="$(find app/build engine/build -path '*arm64-v8a*' -name 'libtaracore_jni.so' | head -1)"
+          test -n "$SO" || { echo "::error::no arm64 .so in the release build"; exit 1; }
+          BAD="$("$READELF" -l "$SO" | awk '/LOAD/ { if ($NF != "0x4000") print }')"
+          if [ -n "$BAD" ]; then echo "::error::LOAD segments not 16 KB aligned"; echo "$BAD"; exit 1; fi
+          echo "16 KB alignment verified on $SO"
+
+      - name: Collect the artefacts
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          mkdir -p dist
+          find app/build/outputs/apk/cpu/release -name "*.apk" \
+            -exec cp {} "dist/tara-core-${TAG}.apk" \;
+          find app/build/outputs/bundle -name "*.aab" \
+            -exec cp {} "dist/tara-core-${TAG}.aab" \;
+          # Native symbols, so a llama.cpp crash in Play Vitals is readable.
+          find app/build/outputs/native-debug-symbols -name "*.zip" \
+            -exec cp {} "dist/tara-core-${TAG}-native-symbols.zip" \; 2>/dev/null || true
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -la dist
+
+      - name: Generate the changelog
+        id: changelog
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo '')"
+          {
+            echo "## What changed"
+            echo
+            if [ -n "$PREV" ]; then
+              git log --no-merges --pretty='- %s' "$PREV..$TAG"
+            else
+              git log --no-merges --pretty='- %s' -20
+            fi
+            echo
+            echo "## Install"
+            echo
+            echo 'Download the `.apk` below. It is arm64-only: Android 8.0 or newer on a 64-bit device.'
+            echo
+            echo 'Verify what you downloaded against `SHA256SUMS.txt`:'
+            echo
+            echo '```'
+            echo 'sha256sum -c SHA256SUMS.txt'
+            echo '```'
+            echo
+            echo "The \`.aab\` is for Play and cannot be installed directly."
+          } > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
+      - name: Publish the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Tara Core ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: false
+          files: dist/*

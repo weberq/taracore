@@ -18,11 +18,14 @@ import dev.taracore.service.TaraSettings
 import dev.taracore.service.model.DownloadProgress
 import dev.taracore.service.model.DownloadRegistry
 import dev.taracore.service.model.ModelEntity
+import dev.taracore.app.update.AvailableUpdate
+import dev.taracore.app.update.UpdateChecker
 import dev.taracore.service.model.ModelRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
@@ -134,19 +137,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _loadProgress = MutableStateFlow<LoadProgress?>(null)
     val loadProgress: StateFlow<LoadProgress?> = _loadProgress.asStateFlow()
 
+    private val updateChecker = UpdateChecker(app)
+
+    private val _availableUpdate = MutableStateFlow<AvailableUpdate?>(null)
+    val availableUpdate: StateFlow<AvailableUpdate?> = _availableUpdate.asStateFlow()
+
     /** The in-flight generation, so the Stop button has something to cancel. */
     private var generationJob: Job? = null
 
     init {
         viewModelScope.launch { repository.sync() }
-        startService()
         connect()
         pollStatus()
+
+        checkForUpdate()
+
+        // The service only needs *starting* when it has to outlive this process.
+        // Binding alone covers the ordinary case and costs the user no notification.
+        viewModelScope.launch {
+            settings.collect { startServiceIfItMustOutliveUs(it) }
+        }
     }
 
     // ------------------------------------------------------------ connection
 
-    private fun startService() {
+    /**
+     * Bind, rather than start a foreground service.
+     *
+     * `bindService` with `BIND_AUTO_CREATE` creates the service and keeps it alive
+     * while we are bound, and a *bound* service needs no notification at all. Calling
+     * `startForegroundService` here -- which is what this used to do -- obliged the
+     * service to post a notification within five seconds and keep it there for as
+     * long as the app lived, which is exactly the thing users disliked.
+     *
+     * The service is only *started* when it must outlive this process: when the HTTP
+     * server is on, or on boot. Then a notification is honest, because something
+     * really is running that the user cannot otherwise see.
+     */
+    private fun startServiceIfItMustOutliveUs(snapshot: SettingsSnapshot) {
+        if (!snapshot.httpEnabled) return
         runCatching {
             ContextCompat.startForegroundService(
                 getApplication(),
@@ -196,6 +225,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
     }
+
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            val snapshot = settingsStore.flow.first()
+            if (!updateChecker.shouldCheck(snapshot.checkForUpdates)) return@launch
+            _availableUpdate.value = updateChecker.check(
+                currentVersionName = BuildConfig.VERSION_NAME,
+                skippedTag = snapshot.skippedUpdateTag,
+            )
+        }
+    }
+
+    fun skipUpdate() {
+        val tag = _availableUpdate.value?.tag ?: return
+        _availableUpdate.value = null
+        viewModelScope.launch { settingsStore.skipUpdate(tag) }
+    }
+
+    fun dismissUpdate() { _availableUpdate.value = null }
 
     // ---------------------------------------------------------------- models
 
@@ -386,6 +434,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setUseMmap(on: Boolean) = viewModelScope.launch { settingsStore.setUseMmap(on) }
 
     fun setUseMlock(on: Boolean) = viewModelScope.launch { settingsStore.setUseMlock(on) }
+
+    fun setShowLiveNotification(on: Boolean) =
+        viewModelScope.launch { settingsStore.setShowLiveNotification(on) }
+
+    fun setCheckForUpdates(on: Boolean) =
+        viewModelScope.launch { settingsStore.setCheckForUpdates(on) }
 
     fun dismissMessage() { _message.value = null }
 

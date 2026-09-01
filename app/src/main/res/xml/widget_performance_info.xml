@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  previewLayout is API 31+ and gives launchers a live preview. previewImage is the
+  fallback for older launchers, which would otherwise show an empty tile in the
+  widget picker.
+
+  updatePeriodMillis is 30 minutes because that is the floor the system honours; it
+  is not how the widget stays current. The service pushes a snapshot on every state
+  change, so this only matters as a backstop after a reboot.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:description="@string/widget_description"
+    android:initialLayout="@layout/widget_performance"
+    android:previewLayout="@layout/widget_performance"
+    android:previewImage="@mipmap/ic_launcher"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000" />

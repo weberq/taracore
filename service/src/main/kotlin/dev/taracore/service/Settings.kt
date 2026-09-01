@@ -38,6 +38,19 @@ data class SettingsSnapshot(
     val activeModelId: String? = null,
     val useMmap: Boolean = true,
     val useMlock: Boolean = false,
+    /**
+     * Keep a status notification visible whenever the service is alive.
+     *
+     * Off by default. Android forces a foreground service to show a notification, so
+     * the only way not to have one sitting there permanently is not to be
+     * permanently foreground -- which is what the service now does. Turning this on
+     * pins the service foreground and shows live model/backend/tokens-per-second.
+     */
+    val showLiveNotification: Boolean = false,
+    /** Check GitHub for a newer release on launch. */
+    val checkForUpdates: Boolean = true,
+    /** Version tag the user chose to stop being reminded about. */
+    val skippedUpdateTag: String = "",
 )
 
 /**
@@ -183,6 +196,13 @@ class TaraSettings(context: Context) {
     suspend fun setUseMmap(on: Boolean) = update { it.copy(useMmap = on) }
 
     suspend fun setUseMlock(on: Boolean) = update { it.copy(useMlock = on) }
+
+    suspend fun setShowLiveNotification(on: Boolean) =
+        update { it.copy(showLiveNotification = on) }
+
+    suspend fun setCheckForUpdates(on: Boolean) = update { it.copy(checkForUpdates = on) }
+
+    suspend fun skipUpdate(tag: String) = update { it.copy(skippedUpdateTag = tag) }
 
     private suspend fun update(block: (SettingsSnapshot) -> SettingsSnapshot) {
         dataStore.updateData(block)

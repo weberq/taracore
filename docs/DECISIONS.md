@@ -333,7 +333,68 @@ required* (a fixed shape is far easier for a small model than deciding which opt
 keys to include), while an empty set means exactly what it says. `GrammarFactory`
 passes null when the incoming JSON Schema has no `required` key.
 
-## D26 — JDK selection stays out of the repository
+## D26 — foreground only while working, and the notification follows from that
+
+Users asked not to have a permanent notification. Android does not offer that as an
+option: a foreground service without a visible notification is not a thing the
+platform allows, and no flag, channel setting or importance level changes it.
+
+So the notification was not hidden — the *foreground state* was made conditional.
+`foregroundIsJustified()` returns true for exactly three reasons: the HTTP server is
+listening (nothing else keeps the process alive), work is in flight (a client that
+asked for a completion and went to the background must still get its answer), or the
+user opted into a live status notification. Idle with a model resident is
+deliberately not on the list: bound clients keep the service alive by themselves, and
+with none, being killed is the correct outcome.
+
+The app also stopped calling `startForegroundService` at launch. Binding alone
+creates the service and keeps it alive, and a *bound* service needs no notification
+at all. The service is only started when it must outlive the UI process.
+
+Two bugs surfaced on device, both the same shape: `syncForegroundState()` is the
+single decision point, and two paths were still calling `updateNotification()`
+instead. The engine-state callback left the notification on screen after every
+generation, and the settings collector meant toggling live status did nothing at all.
+Refreshing a notification is not the same as deciding whether there should be one.
+
+**What the platform still imposes, honestly:** a foreground-service notification is
+forced to at least `IMPORTANCE_LOW`, so the `MIN` channel is promoted and a status
+bar icon appears for as long as the work lasts. On a short request that is under a
+second. There is no way to do better, and claiming otherwise in the UI would be a
+lie.
+
+## D27 — backup is disabled outright rather than filtered
+
+`files/taracore_settings.json` holds the HTTP server's bearer token. Backing it up
+would copy a live credential to cloud backup and then onto whatever device is
+restored next, to gate a server the user may not have enabled there. Models are
+gigabytes and must not be backed up either.
+
+What remains worth preserving is a handful of preferences that take seconds to set
+again — a poor trade against copying a credential around. `allowBackup="false"`, and
+the rule files are kept but exclude everything, so re-enabling backup starts from
+"nothing" rather than from a default that sweeps up the token.
+
+Android lint caught the first attempt at this: excluding paths that were never
+included is a no-op, and the rules would have silently backed up more than intended.
+
+## D28 — the widget is push-fed and holds nothing
+
+`updatePeriodMillis` has a 30-minute floor, which is useless for tokens per second,
+and a widget that woke the engine process to poll would cost more battery than it
+could justify. The service instead broadcasts a snapshot when its state changes, and
+the widget renders whatever it was last told.
+
+The broadcast is package-targeted, which is what makes it deliverable to a manifest
+receiver on Android 8+; a genuinely implicit custom broadcast would be dropped. It is
+throttled to at most once a second and only when the payload changed, because it is
+called from the generation path.
+
+The consequence, which is the right one: with nothing running, the widget shows the
+last known state rather than live data. A widget nobody placed costs nothing at all —
+the service checks for placed widget ids before doing any work.
+
+## D29 — JDK selection stays out of the repository
 
 `org.gradle.java.home` is machine-specific, so it is not committed. `docs/SETUP.md`
 tells contributors to export `JAVA_HOME` instead. This matters more than it sounds:

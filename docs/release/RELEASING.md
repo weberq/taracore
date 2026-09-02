@@ -44,6 +44,11 @@ fine locally and is rejected by Play, which is a slow and confusing way to find 
 | `KEY_ALIAS` | `taracore-upload` |
 | `KEY_PASSWORD` | key password |
 
+For the full Play Console walkthrough — listing copy, content rating, data safety,
+and the `specialUse` justification that gets rejected when it is vague — see
+[PLAY_STORE_GUIDE.md](PLAY_STORE_GUIDE.md). Store assets are built and validated in
+[store-assets/](store-assets/).
+
 ## Cutting a release
 
 ### 1. Bump the version

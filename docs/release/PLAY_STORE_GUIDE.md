@@ -66,6 +66,17 @@ $ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs \
   app/build/outputs/apk/cpu/release/app-cpu-release.apk
 ```
 
+Also check which ABIs the artefact claims:
+
+```bash
+$ANDROID_HOME/build-tools/35.0.0/aapt2 dump badging \
+  app/build/outputs/apk/cpu/release/app-cpu-release.apk | grep native-code
+```
+
+It must print `native-code: 'arm64-v8a'` and nothing else. Play uses that list to
+decide which devices to offer the app to, and only arm64 carries the engine — see
+docs/DECISIONS.md D31 for how this went wrong once.
+
 Expect `Verified using v2 scheme: true` and `v3 scheme: true`. v1 is off on purpose:
 minSdk 26 means every target device honours v2/v3, and v1 signatures carry the
 zip-entry weaknesses.

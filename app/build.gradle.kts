@@ -38,6 +38,17 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            // :engine restricts its own CMake build to arm64, but that says nothing
+            // about what :app packages. AndroidX ships prebuilt .so files for all
+            // four ABIs, so without this the release artefact advertised
+            // armeabi-v7a, x86 and x86_64 as supported -- ABIs that carry no
+            // libtaracore_jni.so at all. Play would then offer the app to 32-bit ARM
+            // and x86 devices where System.loadLibrary fails and there is no engine,
+            // which is worse than simply not being listed for them.
+            abiFilters += "arm64-v8a"
+        }
     }
 
     buildFeatures {
@@ -82,6 +93,10 @@ android {
             // fixed package name, so a suffixed debug build would be invisible to
             // every client and to the sample app.
             isDebuggable = true
+            ndk {
+                // Emulator support, matching :engine's debug ABI. Never in release.
+                abiFilters += "x86_64"
+            }
         }
         release {
             isMinifyEnabled = true

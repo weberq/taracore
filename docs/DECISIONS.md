@@ -438,7 +438,34 @@ Smaller models stay in the catalogue -- they are genuinely useful for narrow,
 constrained tasks, which is the whole argument of issue #1 -- but they are now a
 deliberate choice rather than the one made on the user's behalf.
 
-## D31 — "will it fit" is measured against total memory, not free memory
+## D31 — `abiFilters` belongs in `:app`, not only in `:engine`
+
+Caught while verifying the first signed bundle. `:engine` restricts its own CMake
+build to `arm64-v8a`, and that is correct, but it says nothing about what `:app`
+*packages*. AndroidX ships prebuilt native libraries — `libandroidx.graphics.path.so`
+and `libdatastore_shared_counter.so` — for all four ABIs, so the release APK reported:
+
+```
+native-code: 'arm64-v8a' 'armeabi-v7a' 'x86' 'x86_64'
+```
+
+Only the `arm64-v8a` folder contained `libtaracore_jni.so`. The other three carried
+two AndroidX libraries and no engine.
+
+Play reads that list to decide which devices to offer the app to, so it would have
+served Tara Core to 32-bit ARM and x86 devices where `System.loadLibrary` fails and
+there is no inference engine at all. Worse than not being listed for them, because it
+installs and then does nothing.
+
+`:app`'s `defaultConfig.ndk.abiFilters` now pins `arm64-v8a`, with `x86_64` added back
+by the `debug` build type for the emulator. Verified: `native-code: 'arm64-v8a'`, and
+the release build installs with `primaryCpuAbi=arm64-v8a` and loads the engine under
+R8.
+
+The general lesson: `abiFilters` in a library module constrains that module's own
+build, not the application's packaging. Anything that ships an artefact needs its own.
+
+## D32 — "will it fit" is measured against total memory, not free memory
 
 The original check was `estRamBytes <= availMem`, and it was wrong in the worst
 direction: it told users that models which run perfectly well would not fit.

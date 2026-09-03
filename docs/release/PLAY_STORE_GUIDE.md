@@ -11,7 +11,7 @@ Play Console asks for it. Assets are already built and validated in
 | | |
 |---|---|
 | Package name | `dev.taracore` — **permanent once published**, it can never be changed |
-| Version | 1.0.0 (versionCode 1) |
+| Version | 1.0.0 (versionCode 2) |
 | Upload key | `~/Downloads/auth-keys/auth-keys/cashiflow/upload-keystore.jks`, alias `upload` |
 | Certificate | `CN=WeberQ, OU=CashiFlow, O=WeberQ` |
 | Cert SHA-256 | `1c943d08bd438479c53697f498433aabedfed4a51af93e799a68fe7c8af2631e` |
@@ -302,6 +302,11 @@ Expect review to take a few days for a first submission, and longer with the
 - The in-app update check disables itself automatically for Play installs, so Play
   users are never offered a sideload APK on top of Play's own updates.
 - Watch **Quality → Android vitals** for native crashes in the first week.
+- **`versionCode` must increase on every upload, including uploads that were never
+  released.** Play remembers a version code the moment a bundle is accepted, so a
+  build you replaced still burns its number. Rejection reads *"Version code 1 has
+  already been used."* Bump `versionCode` in `app/build.gradle.kts` and rebuild;
+  `versionName` is the string users see and does not have to change for a re-upload.
 - `versionCode` must increase on every upload. Play rejects a repeat, and
   `.github/workflows/release.yml` fails the build if the git tag and `versionName`
   disagree.

@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "dev.taracore.engine"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     defaultConfig {

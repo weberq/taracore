@@ -438,7 +438,33 @@ Smaller models stay in the catalogue -- they are genuinely useful for narrow,
 constrained tasks, which is the whole argument of issue #1 -- but they are now a
 deliberate choice rather than the one made on the user's behalf.
 
-## D31 — `abiFilters` belongs in `:app`, not only in `:engine`
+## D31 — target API 36, on AGP 8.7.3
+
+Play refuses an upload that targets below API 36: *"Your app currently targets API
+level 35 and must target at least API level 36."* It is a hard gate, not a warning.
+
+`compileSdk` and `targetSdk` are 36 across every module. AGP 8.7.3 officially supports
+`compileSdk 35`, so `android.suppressUnsupportedCompileSdk` moves to 36 with it. It
+builds clean — no warnings, 47 unit tests green — so AGP was not bumped. Upgrading AGP
+would have dragged Gradle with it, and changing the build toolchain to satisfy a
+manifest number is a bigger risk than the number itself.
+
+Targeting 36 is not a number change, it is a behaviour change, so the parts that could
+break were checked on a Pixel 9a rather than assumed:
+
+- **Edge-to-edge is mandatory.** Apps targeting 36 cannot opt out. Every screen was
+  checked: `enableEdgeToEdge()` plus `Scaffold`'s inset handling already did the right
+  thing, and nothing sits under the status bar or the gesture bar.
+- **Predictive back is on by default.** Navigation Compose handles it; back still
+  leaves the About and Licences screens correctly.
+- **16 KB page sizes are required.** Already done and asserted in CI, which is why
+  this was the one requirement that cost nothing.
+- **Inference still works.** 20.7 tok/s on the 0.5B, the foreground service still
+  raises its notification, and the R8-minified release loads the engine.
+
+The CI workflows install `platforms;android-36` and `build-tools;36.0.0` to match.
+
+## D32 — `abiFilters` belongs in `:app`, not only in `:engine`
 
 Caught while verifying the first signed bundle. `:engine` restricts its own CMake
 build to `arm64-v8a`, and that is correct, but it says nothing about what `:app`
@@ -465,7 +491,7 @@ R8.
 The general lesson: `abiFilters` in a library module constrains that module's own
 build, not the application's packaging. Anything that ships an artefact needs its own.
 
-## D32 — "will it fit" is measured against total memory, not free memory
+## D33 — "will it fit" is measured against total memory, not free memory
 
 The original check was `estRamBytes <= availMem`, and it was wrong in the worst
 direction: it told users that models which run perfectly well would not fit.

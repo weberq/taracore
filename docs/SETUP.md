@@ -5,7 +5,7 @@
 | Tool | Version | Why |
 |---|---|---|
 | JDK | 17 or 21 | AGP 8.7 targets Java 17 bytecode. A **JDK**, not a JRE — a JRE has no `javac` and Gradle fails with `does not provide the required capabilities: [JAVA_COMPILER]`. |
-| Android SDK | Platform 35, Build-Tools 35.0.0 | `compileSdk`/`targetSdk` 35. |
+| Android SDK | Platform 36, Build-Tools 36.0.0 | `compileSdk`/`targetSdk` 36. |
 | Android NDK | r27 (`27.0.12077973`) or newer | 16 KB page support and a clang new enough for `armv8.2-a+dotprod+fp16`. |
 | CMake | 3.22.1 (the SDK-bundled one) | Pinned in `engine/build.gradle.kts`. |
 | Git | any | `llama.cpp` is a submodule. |
@@ -37,8 +37,8 @@ Headless:
 ```bash
 export ANDROID_HOME="$HOME/Android/Sdk"
 "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-  "platforms;android-35" \
-  "build-tools;35.0.0" \
+  "platforms;android-36" \
+  "build-tools;36.0.0" \
   "ndk;27.0.12077973" \
   "cmake;3.22.1"
 yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses
